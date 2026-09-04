@@ -1,0 +1,54 @@
+[package]
+name = "veglass"
+version = "0.1.3"
+description = "Veglass — fast hybrid video editor"
+authors = ["Veglass"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# Tauri v2 keeps the app logic in a library so mobile targets can reuse it.
+name = "veglass_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+base64 = "0.22"
+# The app's only HTTP client: `engine::install` fetches a static ffmpeg build
+# when the machine has none, and `ai::gemini` calls the Generative Language API.
+# Both speak from Rust rather than the webview — one so the download can stream
+# to disk, the other so the API key never enters the renderer process.
+ureq = "2"
+# deflate only: the published ffmpeg archives use it, and the default feature
+# set drags in bzip2, zstd, xz and aes native builds for nothing.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Both are for `ai::secrets` only: the keystream that hides the API key when no
+# OS credential store is available, and the salt that seeds it.
+sha2 = "0.10"
+getrandom = "0.2"
+tauri-plugin-updater = "2.11.0"
+tauri-plugin-process = "2.3.1"
+
+# The Gemini key belongs in the operating system's own credential store. Only
+# the native backends are pulled in: the Linux secret-service one needs D-Bus at
+# build *and* run time, and a headless session has no keyring to talk to — those
+# platforms fall back to the file store in `ai::secrets`.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

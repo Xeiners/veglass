@@ -1,0 +1,129 @@
+@import '@fontsource-variable/inter';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --rail: 3.25rem;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+   * A desktop shell must never scroll as a page. Without this, one stray
+   * overflow — or a browser zoom — lets the whole application slide under the
+   * window, and every panel goes out of register.
+   */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  html {
+    /* Pinch-zoom belongs to the timeline, not to the document. */
+    touch-action: manipulation;
+  }
+
+  body {
+    @apply bg-ink-900 font-sans text-[13px] text-white/80 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  /* The app is a native shell: no accidental text selection, no native menus. */
+  body {
+    user-select: none;
+    cursor: default;
+  }
+
+  input,
+  textarea,
+  [contenteditable],
+  .selectable {
+    user-select: text;
+  }
+
+  ::selection {
+    @apply bg-accent-500/25 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-500/55 ring-offset-2 ring-offset-ink-900;
+  }
+
+  /* Discreet scrollbars — visible only where content overflows. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.09);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.18);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  input[type='range'] {
+    @apply appearance-none bg-transparent;
+  }
+}
+
+@layer components {
+  /* Light glassmorphism: a translucent surface lifted off the canvas. */
+  .glass {
+    @apply border border-white/[0.06] bg-white/[0.025] backdrop-blur-xl;
+  }
+
+  .glass-strong {
+    @apply border border-white/[0.08] bg-ink-800/80 backdrop-blur-2xl;
+  }
+
+  .panel {
+    @apply border-white/[0.055] bg-ink-850/70 backdrop-blur-xl;
+  }
+
+  .hairline {
+    @apply border-white/[0.06];
+  }
+
+  /* Section label — small caps, wide tracking, low emphasis. */
+  .eyebrow {
+    @apply text-2xs font-medium uppercase tracking-[0.14em] text-white/35;
+  }
+
+  .num {
+    @apply font-mono tabular-nums;
+    font-feature-settings: 'tnum', 'zero';
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .drag-none {
+    -webkit-user-drag: none;
+  }
+
+  .mask-fade-r {
+    mask-image: linear-gradient(to right, #000 82%, transparent 100%);
+  }
+}

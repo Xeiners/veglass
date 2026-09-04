@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+# Secrets — first, because everything below is only inconvenient if it leaks.
+# ---------------------------------------------------------------------------
+# The Tauri update signing key. Anyone holding it can publish an update that
+# every installed copy of Veglass will accept and run. It belongs in a password
+# manager, never in a repository — not even a private one, because a private
+# repository can be made public by one click and cannot be un-leaked afterwards.
+*.key
+*.pem
+*.p12
+*.pfx
+.tauri/
+src-tauri/*.key
+# The public half (`*.key.pub`) is meant to be committed — it goes into
+# tauri.conf.json — and the patterns above do not match it, since none of them
+# ends the filename. Stated so nobody "fixes" that by widening them.
+!*.pub
+
+# Environment files. TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# live here during a release build; the Gemini API key does not — it is in the
+# OS credential store — but a stray one would land here too.
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Dependencies and build output
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+
+# Rust. `target` holds gigabytes of compiled artefacts and the finished
+# installers; `gen` is regenerated from tauri.conf.json on every build.
+src-tauri/target/
+src-tauri/gen/
+
+# ---------------------------------------------------------------------------
+# Local machine noise
+# ---------------------------------------------------------------------------
+*.local
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# Editors — keeping the shared recommendations, dropping personal settings.
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------------------
+# Runtime and scratch
+# ---------------------------------------------------------------------------
+# ffmpeg and yt-dlp are fetched at runtime into the app's own data directory,
+# never into the repository — but a manual copy dropped here should not be
+# committed either: they are tens of megabytes of platform-specific binary.
+ffmpeg
+ffmpeg.exe
+ffprobe
+ffprobe.exe
+yt-dlp
+yt-dlp.exe
+
+# Media and exports, in case anything is tested in place. A repository is the
+# wrong place for a two-gigabyte recording.
+/media/
+/exports/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+
+# Logs and crash reports
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Scratch space
+/tmp/
+/scratch/
+*.tmp
+settings.json 
