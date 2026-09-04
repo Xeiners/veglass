@@ -1,18 +1,13 @@
-<!-- CAPTURE 1 — docs/images/hero.png
-     L'éditeur complet, un projet chargé, timeline garnie, preview qui montre
-     quelque chose de reconnaissable. C'est l'image qui décide si on lit la suite.
-     Décommentez la ligne ci-dessous une fois le fichier déposé. -->
-<!-- ![Veglass](docs/images/hero.png) -->
+<p align="center">
+  <img src="docs/images/hero.png" alt="Veglass" width="100%">
+</p>
 
-# Veglass
+<h1 align="center">Veglass</h1>
 
-**Un banc de montage vidéo qui tourne sur votre machine.**
-
-Le montage classique — importer, couper, superposer, titrer, exporter — plus ce
-qui prend d'ordinaire le plus de temps : découper une longue vidéo en clips
-courts, caler les sous-titres, narrer un tutoriel, passer un 16:9 en vertical.
-
-Vos fichiers restent chez vous. Rien n'est téléversé, aucun compte requis.
+<p align="center">
+  <strong>Un banc de montage vidéo qui tourne sur votre machine.</strong><br>
+  Vos fichiers restent chez vous. Rien n'est téléversé, aucun compte requis.
+</p>
 
 ---
 
@@ -48,47 +43,40 @@ npm run desktop:build        # bundle signé (.msi / .exe / .dmg / .AppImage)
 
 ---
 
-## Le montage
+## La timeline
 
-<!-- CAPTURE 2 — docs/images/timeline.png
-     La timeline avec plusieurs pistes, un clip sélectionné, des images clés
-     visibles sur une piste. Cadrez large : c'est le cœur du logiciel. -->
-<!-- ![Timeline multi-pistes](docs/images/timeline.png) -->
+![Timeline multi-pistes](docs/images/timeline.png)
 
-Timeline multi-pistes, preview synchronisée au rendu, images clés sur la
-position, l'échelle, la rotation, l'opacité et le volume — avec éditeur de
-courbes.
+Autant de pistes vidéo et audio que nécessaire. Images clés sur la position,
+l'échelle, la rotation, l'opacité et le volume — visibles ici sur la piste
+« Écran », où chaque losange est un mouvement de caméra.
 
-Six effets empilables et animables (luminosité, contraste, saturation, teinte,
-flou, noir et blanc), trois transitions, un mixeur par piste avec compresseur et
-filtres.
+Six effets empilables et animables, trois transitions, un mixeur par piste avec
+compresseur et filtres. Texte complet, fonds animés générés, bandeaux, repères
+de chapitre.
 
-Texte complet : polices, contour, ombre, fond de boîte. Fonds animés générés,
-bandeaux, arrière-plan « verre » qui remplit le vide autour d'un clip recadré.
-Repères de chapitre pour naviguer un montage long.
+> Cette capture montre la sortie du **générateur de tutoriels** : un
+> enregistrement d'écran avec une caméra qui suit l'action, et la narration
+> découpée en clips sur la piste du dessous.
 
 ---
 
 ## L'assistant
 
-<!-- CAPTURE 3 — docs/images/viral.png
-     Le tableau de bord des clips viraux, avec ses vignettes, ses scores et ses
-     titres. C'est la fonction la plus démonstrative du logiciel. -->
-<!-- ![Générateur de clips viraux](docs/images/viral.png) -->
+![Assistant de clips viraux](docs/images/wizard.png)
 
 **Clips viraux.** Une vidéo longue entre ; Veglass l'écoute, repère les passages
 qui tiennent debout seuls, et propose une série d'extraits notés. Chacun part
 dans le projet ou devient une séquence verticale recadrée, sous-titrée, avec un
 bandeau d'accroche sur les trois premières secondes.
 
+Vous choisissez le format, la durée visée, le registre — et vous pouvez écrire
+vos propres consignes en français. Veglass annonce ce que le recadrage coûte
+avant de le faire.
+
 **Sous-titres.** Transcription automatique, ou calage d'un texte que vous
 fournissez — la seconde méthode est nettement plus fidèle. Ligne par ligne ou
 mot par mot, animé.
-
-<!-- CAPTURE 4 — docs/images/kits.png
-     L'onglet Brand kits de l'assistant, avec les trois modèles et leurs aperçus
-     côte à côte. -->
-<!-- ![Brand kits](docs/images/kits.png) -->
 
 **Brand kits.** Vos styles de sous-titres et d'accroche, enregistrés et
 réutilisables d'un projet à l'autre. Trois modèles fournis.
@@ -112,14 +100,11 @@ titre repositionné, chaque mouvement de caméra recalculé.
 
 ## Médias en ligne
 
-<!-- CAPTURE 5 — docs/images/online.png
-     Le panneau Médias en ligne : recherche à droite, file de téléchargement à
-     gauche, avec au moins un résultat visible. -->
-<!-- ![Médias en ligne](docs/images/online.png) -->
+![Recherche et téléchargement](docs/images/online.png)
 
-Recherche et téléchargement depuis YouTube, avec choix de la qualité, du format
-et de la piste audio seule. Les fichiers récupérés se comportent comme des
-imports locaux.
+Recherche YouTube avec filtres — type, durée, tri — puis téléchargement au
+format et à la qualité de votre choix, ou piste audio seule. Les fichiers
+récupérés se comportent comme des imports locaux.
 
 > Le téléchargement peut contrevenir aux conditions d'utilisation du site et aux
 > droits sur l'œuvre. C'est votre responsabilité.
@@ -128,14 +113,11 @@ imports locaux.
 
 ## Export
 
-<!-- CAPTURE 6 — docs/images/export.png
-     La fenêtre d'export, réglages visibles, idéalement pendant un rendu pour
-     qu'on voie la barre de progression. -->
-<!-- ![Export](docs/images/export.png) -->
+![Fenêtre d'export](docs/images/export.png)
 
-Rendu par ffmpeg : résolution, débit, encodeur — accélération matérielle quand
-la machine en a une. Le rendu tourne en tâche de fond, avec une progression
-réelle et une annulation qui fonctionne.
+Rendu par ffmpeg : résolution, qualité, encodeur — accélération matérielle quand
+la machine en a une. Le poids et la durée sont estimés avant de lancer, et
+l'estimation s'ajuste sur vos rendus précédents.
 
 Voix de synthèse en option, via une clé ElevenLabs : la narration se pose sur la
 timeline comme un clip audio, avec atténuation automatique de la musique.
