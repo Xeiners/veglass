@@ -8,7 +8,7 @@ import {
   type Clip,
   type Track,
 } from '@/types/timeline';
-import { cssFilterFor, type Effect } from '@/types/effects';
+import type { Effect } from '@/types/effects';
 import {
   evaluateKeyframes,
   isAnimated,
@@ -349,8 +349,6 @@ export interface PreviewLayerSpec {
   gain: number;
   /** Where to park the media element, already clamped to the source. */
   sourceTime: number;
-  /** CSS `filter` produced by the clip's effect stack. */
-  filter: string | undefined;
 }
 
 export interface Composition {
@@ -389,7 +387,6 @@ function toLayer(project: Project, source: Clip, time: number, ramp: number): Pr
     opacity: gain * Math.max(0, Math.min(1, clip.opacity)),
     gain,
     sourceTime,
-    filter: cssFilterFor(clip.effects),
   };
 }
 

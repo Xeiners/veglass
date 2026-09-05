@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use veglass_lib::engine::ffmpeg::{build_args, locate_binary, ExportSettings, Streams};
+use veglass_lib::engine::ffmpeg::{
+    build_args, command_length, locate_binary, spill_graph, ExportSettings, Streams,
+};
 use veglass_lib::engine::install::remember_install_dir;
 use veglass_lib::engine::render::{RenderPlan, RenderSegment, TrackBus, TransitionPlan};
 use veglass_lib::model::{Breakpoint, Effect};
@@ -308,6 +310,9 @@ fn the_generated_graph_is_one_ffmpeg_accepts() {
         effect("saturation", "amount", 0.7),
         effect("blur", "radius", 4.0),
         effect("hue", "angle", 40.0),
+        effect("invert", "amount", 1.0),
+        effect("rgbsplit", "amount", 8.0),
+        effect("motionblur", "amount", 12.0),
     ];
     filtered.filters = veglass_lib::engine::effect_filters(&filtered.effects);
     encode(
@@ -317,10 +322,17 @@ fn the_generated_graph_is_one_ffmpeg_accepts() {
         "effects.mp4",
     );
 
-    // An animated effect parameter, which swaps the constant for an expression.
+    /*
+     * An animated effect parameter, which swaps the constant for an expression.
+     *
+     * The channel is `fx:<effect id>:<key>` — the name the resolver actually
+     * looks up. This test used to spell it `effect:brightness:amount`, which
+     * matches nothing, so it encoded a neutral brightness and proved that an
+     * animated parameter works by never animating one.
+     */
     let mut animated_effect = segment("video", 0, &video, "tr1");
     animated_effect.effects = vec![effect("brightness", "amount", 0.0)];
-    let (name, points) = ramp("effect:brightness:amount", -0.3, 0.3);
+    let (name, points) = ramp("fx:fx-brightness:amount", -0.3, 0.3);
     animated_effect.animated.insert(name, points);
     encode(
         &ffmpeg,
@@ -328,6 +340,29 @@ fn the_generated_graph_is_one_ffmpeg_accepts() {
         &streams,
         "animated-effect.mp4",
     );
+
+    /*
+     * The two impact effects, animated.
+     *
+     * These take the other road out of `animated_effect_filters`: neither
+     * `rgbashift` nor `gblur` accepts an expression, so the curve is played as
+     * a run of gated copies of the filter. That produces a graph shaped quite
+     * unlike anything else here — several instances of one filter in a row,
+     * each carrying a quoted `enable` full of commas — and only ffmpeg can say
+     * whether the quoting survives the filtergraph parser.
+     */
+    for (kind, from, to) in [("rgbsplit", 14.0, 0.0), ("motionblur", 18.0, 0.0)] {
+        let mut impact = segment("video", 0, &video, "tr1");
+        impact.effects = vec![effect(kind, "amount", 0.0)];
+        let (name, points) = ramp(&format!("fx:fx-{kind}:amount"), from, to);
+        impact.animated.insert(name, points);
+        encode(
+            &ffmpeg,
+            &plan(vec![impact], vec![bus("tr1", "video")]),
+            &streams,
+            &format!("animated-{kind}.mp4"),
+        );
+    }
 
     // A cross-dissolve: two clips overlapping, each carrying an alpha ramp.
     let mut outgoing = segment("video", 0, &video, "tr1");
@@ -358,6 +393,47 @@ fn the_generated_graph_is_one_ffmpeg_accepts() {
         ffmpeg: String::new(),
     }];
     encode(&ffmpeg, &dissolve, &streams, "dissolve.mp4");
+
+    /*
+     * The graph read from a file rather than from the command line.
+     *
+     * A montage of two hundred shots produces a filtergraph of several hundred
+     * thousand characters, and Windows refuses any command line past 32 767 —
+     * reporting it as `os error 206`, "the filename or extension is too long",
+     * which names the wrong thing entirely. The encoder spills the graph to a
+     * file and passes `-/filter_complex` instead.
+     *
+     * That option is recent, and only ffmpeg can settle whether the build in
+     * front of us accepts it. Asserted on a small graph, because what is being
+     * tested is the *syntax* — the length arithmetic is covered by unit tests
+     * that need no encoder.
+     */
+    let mut spilled = build_args(
+        &plan(vec![segment("video", 0, &video, "tr1")], vec![bus("tr1", "video")]),
+        &streams,
+        &scratch().join("spilled.mp4"),
+        &ExportSettings::default(),
+    )
+    .expect("arguments construits");
+
+    let graph_file = scratch().join("graph.txt");
+    assert!(spill_graph(&mut spilled.args, &graph_file).expect("graphe écrit"));
+    assert!(spilled.args.iter().any(|arg| arg == "-/filter_complex"));
+
+    let result = Command::new(&ffmpeg).args(&spilled.args).output().expect("ffmpeg lancé");
+    assert!(
+        result.status.success(),
+        "ffmpeg a refusé un graphe lu depuis un fichier.\n--- ffmpeg ---\n{}",
+        String::from_utf8_lossy(&result.stderr).trim(),
+    );
+    assert!(
+        std::fs::metadata(scratch().join("spilled.mp4")).map(|m| m.len()).unwrap_or(0) > 0,
+        "le rendu par fichier de graphe n'a rien écrit",
+    );
+    eprintln!(
+        "graphe déporté : ligne de commande ramenée à {} caractères",
+        command_length(&ffmpeg, &spilled.args),
+    );
 
     let _ = std::fs::remove_dir_all(scratch());
 }

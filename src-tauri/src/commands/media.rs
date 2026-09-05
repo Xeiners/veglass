@@ -200,6 +200,52 @@ pub fn parent_directory(path: String) -> Result<Option<String>> {
         .map(|value| value.to_string_lossy().to_string()))
 }
 
+/// Ceiling on one folder listing, so pointing the wizard at a drive root cannot
+/// hand the front-end a hundred thousand paths to probe.
+const MAX_FOLDER_ENTRIES: usize = 500;
+
+/// The media files sitting directly in `path`, by extension, sorted by name.
+///
+/// Shallow on purpose. "The folder of clips" is a folder someone assembled, and
+/// descending into it would sweep up a `proxies/` or `.trash/` subfolder that
+/// was deliberately kept aside — the relink scan recurses because it is hunting
+/// for one known file, which is the opposite problem.
+///
+/// Sorted because the AMV sequencer draws from this list through a seeded
+/// shuffle: `read_dir` yields whatever order the filesystem feels like, and a
+/// montage that came out differently on the same folder and the same seed would
+/// not be reproducible at all.
+#[tauri::command]
+pub fn list_media_folder(path: String, extensions: Vec<String>) -> Result<Vec<String>> {
+    let wanted: HashSet<String> = extensions
+        .iter()
+        .map(|value| value.trim_start_matches('.').to_lowercase())
+        .collect();
+
+    let mut out: Vec<String> = Vec::new();
+    // `read_dir` is what reports "no such folder" and "that is a file", in the
+    // platform's own words — better than any sentence invented here.
+    for entry in std::fs::read_dir(Path::new(&path))?.flatten() {
+        if out.len() >= MAX_FOLDER_ENTRIES {
+            break;
+        }
+        let file = entry.path();
+        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let matches = file
+            .extension()
+            .map(|value| wanted.contains(&value.to_string_lossy().to_lowercase()))
+            .unwrap_or(false);
+        if matches {
+            out.push(file.to_string_lossy().to_string());
+        }
+    }
+
+    out.sort();
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +284,26 @@ mod tests {
         );
         assert_eq!(out[0].status, "relocated");
         assert!(out[0].path.as_deref().unwrap().ends_with("Cargo.toml"));
+    }
+
+    #[test]
+    fn a_folder_listing_keeps_only_the_wanted_extensions_and_sorts_them() {
+        let root = env!("CARGO_MANIFEST_DIR").to_string();
+        let out = list_media_folder(root, vec!["toml".into(), ".json".into()]).unwrap();
+
+        assert!(out.iter().any(|path| path.ends_with("Cargo.toml")));
+        assert!(out.iter().all(|path| path.ends_with(".toml") || path.ends_with(".json")));
+        // A leading dot on the filter is accepted, and the order is the one the
+        // seeded shuffle downstream is entitled to assume.
+        let mut sorted = out.clone();
+        sorted.sort();
+        assert_eq!(out, sorted);
+    }
+
+    #[test]
+    fn listing_something_that_is_not_a_folder_is_an_error_not_an_empty_list() {
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml").to_string();
+        assert!(list_media_folder(manifest, vec!["mp4".into()]).is_err());
     }
 
     #[test]

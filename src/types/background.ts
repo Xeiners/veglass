@@ -12,7 +12,7 @@
  * backgrounds exist, it receives PNGs like it does for text.
  */
 
-export type BackgroundKind = 'aurora' | 'bokeh' | 'mesh' | 'waves';
+export type BackgroundKind = 'aurora' | 'bokeh' | 'mesh' | 'waves' | 'solid';
 
 export interface BackgroundLayer {
   kind: BackgroundKind;
@@ -47,9 +47,9 @@ export interface BackgroundDescriptor {
 /**
  * The looks on offer.
  *
- * Four, deliberately: each has to be recognisably its own thing at a glance,
- * and a list of twelve near-identical gradients is worse than a list of four
- * that are not.
+ * Four patterns, deliberately: each has to be recognisably its own thing at a
+ * glance, and a list of twelve near-identical gradients is worse than a list of
+ * four that are not. The fifth entry is not a look at all — see `solid`.
  */
 export const BACKGROUNDS: BackgroundDescriptor[] = [
   {
@@ -102,6 +102,34 @@ export const BACKGROUNDS: BackgroundDescriptor[] = [
       speed: 0.5,
       scale: 1,
       intensity: 0.8,
+    },
+  },
+  {
+    /*
+     * A flat colour, edge to edge — a matte rather than a look.
+     *
+     * It earns a place in this registry because everything a generated layer
+     * already gets for free is exactly what a colour card needs: the painter
+     * draws it, the bake rasterises it, the encoder overlays the PNG, and an
+     * animated opacity travels through all three by construction. A veil built
+     * any other way would be a fourth thing to keep in parity.
+     *
+     * It is what an AMV's flashes are made of, and it is the plainest possible
+     * answer to "I want two seconds of black at the top".
+     */
+    kind: 'solid',
+    label: 'Aplat',
+    hint: 'Une couleur pleine et immobile — cartons, voiles, flashs',
+    preset: {
+      kind: 'solid',
+      base: '#FFFFFF',
+      // Nothing is drawn over the base, so there are no accents to choose.
+      colors: [],
+      // Frozen by definition: a flat colour has nothing that could move, and a
+      // speed of zero is what lets the bake write one PNG instead of hundreds.
+      speed: 0,
+      scale: 1,
+      intensity: 1,
     },
   },
 ];

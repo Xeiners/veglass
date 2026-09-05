@@ -11,6 +11,7 @@ import { SubtitleDialog } from '@/components/editor/ai/SubtitleDialog';
 import { MediaBrowser } from '@/components/editor/online/MediaBrowser';
 import { BannerPicker } from '@/components/editor/banner/BannerPicker';
 import { ViralWizard } from '@/components/editor/viral/ViralWizard';
+import { AmvWizard } from '@/components/editor/amv/AmvWizard';
 import { UpdateDialog } from '@/components/UpdateDialog';
 import { TutorialWizard } from '@/components/editor/tutorial/TutorialWizard';
 import { audioEngine } from '@/lib/audioEngine';
@@ -135,6 +136,7 @@ export function App() {
       <BannerPicker />
       <ViralWizard />
       <TutorialWizard />
+      <AmvWizard />
       {/* Silent until there is genuinely a newer version — see `lib/updater`. */}
       <UpdateDialog />
       <Toaster />

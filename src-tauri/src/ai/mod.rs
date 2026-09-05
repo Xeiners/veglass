@@ -10,7 +10,9 @@
 //! * [`audio`] gets sound off the disk — compressed for the model, or measured
 //!   for silence detection;
 //! * [`frame`] pulls a single still, for previewing a cut the model proposed —
-//!   and, for the tutorial generator, for showing the model the screen itself.
+//!   and, for the tutorial generator, for showing the model the screen itself;
+//! * [`scenes`] reads where a video cuts, so the director can measure the pace
+//!   of a reference edit instead of guessing at it.
 //!
 //! What a request *says* is not decided here. Prompts, JSON schemas and the
 //! translation of an answer into timeline edits all live in `src/lib/ai/`,
@@ -23,6 +25,7 @@ pub mod eleven;
 pub mod error;
 pub mod frame;
 pub mod gemini;
+pub mod scenes;
 pub mod secrets;
 
 pub use error::{AiError, AiErrorKind};

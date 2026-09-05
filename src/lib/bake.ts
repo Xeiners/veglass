@@ -1,6 +1,7 @@
 import { isTauri } from './env';
 import { resolveClipAt } from '@/store/selectors';
-import { cssFilterFor } from '@/types/effects';
+import { filterChainFor } from '@/types/effects';
+import { withMountedFilters } from './svgFilters';
 import {
   TEXT_PADDING_X,
   TEXT_PADDING_Y,
@@ -152,7 +153,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Draws one layer onto a transparent frame-sized canvas and returns a PNG. */
+/**
+ * Draws one layer onto a transparent frame-sized canvas and returns a PNG.
+ *
+ * Expects any SVG filters its effect stack refers to to be **already in the
+ * document** — a canvas resolves `url(#…)` the way any other filter reference
+ * does, and a reference that resolves to nothing invalidates the whole `filter`
+ * value, taking the brightness and the contrast down with it. {@link
+ * bakeWithFilters} is the entry point that guarantees it; this one is the plain
+ * drawing step underneath, and is safe to call directly only for a stack made
+ * of the effects CSS can express on its own.
+ */
 export async function bakeLayer(
   clip: Clip,
   asset: MediaAsset | null,
@@ -170,9 +181,15 @@ export async function bakeLayer(
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, clip.opacity));
 
-  // The effect chain is the same CSS the preview uses, so both agree.
-  const filter = cssFilterFor(clip.effects);
-  if (filter) ctx.filter = filter;
+  /*
+   * The effect chain is the same one the preview builds, so both agree.
+   *
+   * At `unit = 1`: this canvas is the project's own frame, so a length in
+   * project pixels is already a length in canvas pixels. The viewer is the one
+   * that has to convert.
+   */
+  const chain = filterChainFor(clip.effects, 1, clip.id);
+  if (chain.css) ctx.filter = chain.css;
 
   applyTransform(ctx, clip, settings);
 
@@ -182,7 +199,7 @@ export async function bakeLayer(
     ctx.restore();
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, clip.opacity));
-    if (filter) ctx.filter = filter;
+    if (chain.css) ctx.filter = chain.css;
     paintBackground(
       ctx,
       clip.background,
@@ -211,6 +228,29 @@ export async function bakeLayer(
   ctx.restore();
   return canvas.toDataURL('image/png');
 }
+
+/**
+ * Draws one layer with its SVG filters mounted, if it needs any.
+ *
+ * A canvas resolves `url(#…)` against the document, and the layer being baked is
+ * very often not the one the preview is showing — so the filter its chain names
+ * is nowhere on the page. Mounting for the length of one draw is what makes an
+ * export of a title carrying a chromatic split match the viewer instead of
+ * quietly losing the effect.
+ *
+ * The common case allocates nothing: `withMountedFilters` returns the draw
+ * untouched when there is nothing to mount, which is every layer that uses only
+ * the effects CSS can express.
+ */
+export const bakeWithFilters = (
+  clip: Clip,
+  asset: MediaAsset | null,
+  settings: ProjectSettings,
+  at = 0,
+): Promise<string> =>
+  withMountedFilters(filterChainFor(clip.effects, 1, clip.id).svg, () =>
+    bakeLayer(clip, asset, settings, at),
+  );
 
 const hasAnimation = (clip: Clip): boolean =>
   Object.values(clip.animation ?? {}).some((keyframes) => keyframes.length > 0);
@@ -258,7 +298,7 @@ export async function bakeLayers(
       // A moving background changes every frame whether or not a keyframe says
       // so, which is the one case where the still path would be wrong.
       if (!bakesAsSequence(clip)) {
-        const png = await bakeLayer(clip, asset, settings);
+        const png = await bakeWithFilters(clip, asset, settings);
         // Clip ids are already `[a-z0-9_]`, which is what the writer accepts.
         out[clip.id] = await invoke<string>('write_baked_layer', {
           key: clip.id,
@@ -273,7 +313,12 @@ export async function bakeLayers(
         for (let index = 0; index < frames; index += 1) {
           // Evaluated on the timeline, exactly where the viewer would be.
           const at = clip.start + index / settings.fps;
-          const png = await bakeLayer(resolveClipAt(clip, at), asset, settings, at - clip.start);
+          const png = await bakeWithFilters(
+            resolveClipAt(clip, at),
+            asset,
+            settings,
+            at - clip.start,
+          );
           pattern = await invoke<string>('write_baked_frame', {
             key: clip.id,
             index: index + 1,

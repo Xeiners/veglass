@@ -1,23 +1,35 @@
-import { Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Clapperboard, Sparkles, SlidersHorizontal } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 import { useAi } from '@/store/aiStore';
 import { useEditor, type RightTab } from '@/store/editorStore';
 import { Inspector } from './Inspector';
 import { AssistantPanel } from './ai/AssistantPanel';
+import { DirectorPanel } from './director/DirectorPanel';
+import { DIRECTOR_ENABLED } from '@/types/director';
 
 const TABS: { id: RightTab; label: string; icon: typeof Sparkles }[] = [
   { id: 'inspector', label: 'Inspecteur', icon: SlidersHorizontal },
   { id: 'assistant', label: 'Assistant', icon: Sparkles },
+  // The copilot is built and tested but not offered — see `DIRECTOR_ENABLED`.
+  ...(DIRECTOR_ENABLED
+    ? [{ id: 'director' as const, label: 'Chef monteur', icon: Clapperboard }]
+    : []),
 ];
 
 /**
- * The right column, shared between the inspector and the assistant.
+ * The right column, shared between the inspector, the assistant and the
+ * director.
  *
  * A fourth column would have cost the viewer three hundred pixels for a panel
- * that is empty most of the time; the inspector and the assistant are both
- * "what am I working on right now" surfaces, and neither is needed while the
- * other is being read.
+ * that is empty most of the time; all three are "what am I working on right
+ * now" surfaces, and none is needed while another is being read.
+ *
+ * The assistant and the director are deliberately not one tab. The assistant
+ * edits the timeline you already have, a turn at a time; the director agrees a
+ * whole montage before anything exists. Folding them together would mean one
+ * conversation whose answers sometimes touch the document and sometimes
+ * describe a proposal, with nothing on screen saying which.
  */
 export function RightPanel() {
   const tab = useEditor((state) => state.rightTab);
@@ -58,7 +70,15 @@ export function RightPanel() {
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === 'assistant' ? <AssistantPanel /> : <Inspector />}
+        {/* Anything that is not on offer falls back to the inspector rather
+            than rendering nothing — a tab can outlive the switch that shows it. */}
+        {tab === 'assistant' ? (
+          <AssistantPanel />
+        ) : tab === 'director' && DIRECTOR_ENABLED ? (
+          <DirectorPanel />
+        ) : (
+          <Inspector />
+        )}
       </div>
     </div>
   );

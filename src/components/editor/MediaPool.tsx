@@ -18,6 +18,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { useEditor } from '@/store/editorStore';
 import { useViral } from '@/store/viralStore';
 import { useTutorial } from '@/store/tutorialStore';
+import { useAmv } from '@/store/amvStore';
 import { useAssetMenu } from '@/components/editor/contextMenus';
 import type { MediaAsset, MediaKind } from '@/types/media';
 
@@ -35,6 +36,7 @@ export function MediaPool() {
   const selectedAssetId = useEditor((state) => state.selectedAssetId);
   const openViral = useViral((state) => state.openWizard);
   const openTutorial = useTutorial((state) => state.openWizard);
+  const openAmv = useAmv((state) => state.openWizard);
   const importFiles = useEditor((state) => state.importFiles);
   const importFromDialog = useEditor((state) => state.importFromDialog);
   const removeAsset = useEditor((state) => state.removeAsset);
@@ -52,6 +54,10 @@ export function MediaPool() {
   // so the common path — pick the recording, press the button — skips step one.
   const selectedVideoId =
     assets.find((asset) => asset.id === selectedAssetId && asset.kind === 'video' && !asset.missing)
+      ?.id ?? null;
+  // And the same for a piece of music, which is what the rhythmic montage opens on.
+  const selectedAudioId =
+    assets.find((asset) => asset.id === selectedAssetId && asset.kind === 'audio' && !asset.missing)
       ?.id ?? null;
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -143,32 +149,44 @@ export function MediaPool() {
         )}
       </div>
 
-      {assets.length > 0 && (
-        <div className="shrink-0 space-y-2 border-t border-white/[0.05] p-3">
-          {/* Offered only when there is something to mine: the generator works
-              from what is said, so a pool of images and music has no source. */}
-          {assets.some((asset) => asset.kind === 'video' && !asset.missing) && (
-            <Button
-              variant="secondary"
-              size="sm"
-              block
-              icon={<Sparkles size={13} strokeWidth={2} />}
-              onClick={() => openViral(selectedVideoId ?? undefined)}
-            >
-              Générer des clips viraux
-            </Button>
-          )}
-          {assets.some((asset) => asset.kind === 'video' && !asset.missing) && (
-            <Button
-              variant="secondary"
-              size="sm"
-              block
-              icon={<GraduationCap size={13} strokeWidth={2} />}
-              onClick={() => openTutorial(selectedVideoId ?? undefined)}
-            >
-              Monter un tutoriel
-            </Button>
-          )}
+      <div className="shrink-0 space-y-2 border-t border-white/[0.05] p-3">
+        {/* Offered only when there is something to mine: the generator works
+            from what is said, so a pool of images and music has no source. */}
+        {assets.some((asset) => asset.kind === 'video' && !asset.missing) && (
+          <Button
+            variant="secondary"
+            size="sm"
+            block
+            icon={<Sparkles size={13} strokeWidth={2} />}
+            onClick={() => openViral(selectedVideoId ?? undefined)}
+          >
+            Générer des clips viraux
+          </Button>
+        )}
+        {assets.some((asset) => asset.kind === 'video' && !asset.missing) && (
+          <Button
+            variant="secondary"
+            size="sm"
+            block
+            icon={<GraduationCap size={13} strokeWidth={2} />}
+            onClick={() => openTutorial(selectedVideoId ?? undefined)}
+          >
+            Monter un tutoriel
+          </Button>
+        )}
+        {/* Ungated, unlike the two above: this one brings its own music and its
+            own folder of clips, so an empty project is its normal starting
+            point rather than a reason to hide it. */}
+        <Button
+          variant="secondary"
+          size="sm"
+          block
+          icon={<AudioLines size={13} strokeWidth={2} />}
+          onClick={() => openAmv(selectedAudioId ?? undefined)}
+        >
+          Monter sur une musique
+        </Button>
+        {assets.length > 0 && (
           <Button
             variant="secondary"
             size="sm"
@@ -178,8 +196,8 @@ export function MediaPool() {
           >
             Importer
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       <input
         ref={inputRef}

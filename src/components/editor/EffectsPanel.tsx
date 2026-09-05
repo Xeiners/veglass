@@ -3,11 +3,14 @@ import {
   Blend,
   Contrast,
   Droplet,
+  Eclipse,
   Info,
+  Layers2,
   Moon,
   MousePointerClick,
   Palette,
   Sun,
+  Waves,
   Sunrise,
   Sunset,
   type LucideIcon,
@@ -29,6 +32,9 @@ const EFFECT_ICON: Record<EffectKind, LucideIcon> = {
   blur: Aperture,
   hue: Palette,
   grayscale: Moon,
+  invert: Eclipse,
+  rgbsplit: Layers2,
+  motionblur: Waves,
 };
 
 const TRANSITION_ICON: Record<TransitionKind, LucideIcon> = {

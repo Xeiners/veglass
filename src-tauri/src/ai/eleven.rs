@@ -159,9 +159,45 @@ fn status_from_body(body: &str) -> Option<String> {
 /// recognise and for a key whose character allowance is spent. Those need
 /// opposite reactions — one reopens the settings panel, the other must not —
 /// so the body's `status` field is consulted before the code is trusted.
+/// Whether a string has the shape of an ElevenLabs key.
+///
+/// The service publishes this itself, in the very error that prompted the
+/// check: "API keys start with 'sk_' and are shown when the key is created or
+/// rotated." The dashboard displays a *key id* next to each key, which looks
+/// enough like a secret to be copied by mistake — and the request it produces
+/// comes back as a 400, so it reads as a bad request rather than a bad key.
+pub fn looks_like_key(key: &str) -> bool {
+    key.trim().starts_with("sk_")
+}
+
+/// The mistake, explained in the terms of what the user actually did.
+const KEY_ID_PASTED: &str =
+    "Ceci est l'identifiant de la clé, pas la clé elle-même. Sur elevenlabs.io, la clé      commence par « sk_ » et n'est affichée qu'au moment où vous la créez ou la      régénérez — l'identifiant listé à côté ne fonctionne pas.";
+
 fn from_status(status: u16, body: &str) -> AiError {
     let detail = message_from_body(body);
     let flag = status_from_body(body).unwrap_or_default();
+
+    // Checked before the status code, because this particular refusal arrives
+    // as a 400 and would otherwise be reported as a problem with the voice or
+    // the model — sending the user to look in entirely the wrong place.
+    let about_key = detail
+        .as_deref()
+        .map(str::to_lowercase)
+        .is_some_and(|text| text.contains("api key") || text.contains("api_key"));
+    if about_key {
+        let sentence = if detail
+            .as_deref()
+            .map(str::to_lowercase)
+            .is_some_and(|text| text.contains("key id"))
+        {
+            KEY_ID_PASTED
+        } else {
+            "Clé ElevenLabs refusée. Vérifiez-la dans les réglages, onglet Voix."
+        };
+        return AiError::new(AiErrorKind::InvalidKey, sentence).with_status(status);
+    }
+
     let with = |kind: AiErrorKind, sentence: &str| {
         let message = match &detail {
             Some(text) => format!("{sentence} ({text})"),
@@ -547,6 +583,12 @@ pub fn voices(app: &AppHandle, override_key: Option<&str>) -> Result<Vec<VoiceIn
         None => key_of(app)?,
     };
 
+    // Caught here rather than by the service: the round trip costs a second and
+    // comes back as a 400 whose wording sends the reader to the wrong setting.
+    if !looks_like_key(&key) {
+        return Err(AiError::new(AiErrorKind::InvalidKey, KEY_ID_PASTED));
+    }
+
     let response = agent()
         .get(&format!("{ENDPOINT}/voices"))
         .set("xi-api-key", &key)
@@ -733,6 +775,24 @@ mod tests {
 
     #[test]
     fn an_unrecognised_key_reopens_the_settings_panel() {
+        // Verbatim from the report that prompted this: a key id pasted in place
+        // of the key, which the service answers with a 400.
+        let body = r#"{"detail":{"status":"invalid_api_key","message":"API key ID used as API key - only valid API keys can be used. API keys start with 'sk_' and are shown when the key is created or rotated."}}"#;
+        let error = from_status(400, body);
+        assert_eq!(error.kind, AiErrorKind::InvalidKey, "{}", error.message);
+        assert!(error.message.contains("identifiant"), "{}", error.message);
+        // The old wording sent the reader to the voice and model pickers.
+        assert!(!error.message.contains("voix"), "{}", error.message);
+
+        assert!(looks_like_key("sk_abc123"));
+        assert!(looks_like_key("  sk_abc123  "));
+        assert!(!looks_like_key("abcdef0123456789"));
+        assert!(!looks_like_key(""));
+
+        // A genuine bad-request about the model must keep its own advice.
+        let model = from_status(400, r#"{"detail":{"message":"model_id not found"}}"#);
+        assert_eq!(model.kind, AiErrorKind::Request, "{}", model.message);
+
         let error = from_status(401, r#"{"detail":{"status":"invalid_api_key"}}"#);
         assert_eq!(error.kind, AiErrorKind::InvalidKey);
         assert_eq!(error.status, Some(401));

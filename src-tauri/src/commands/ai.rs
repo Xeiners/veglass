@@ -8,13 +8,14 @@
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::ai::audio::{AudioExcerpt, Envelope};
+use crate::ai::audio::{AudioExcerpt, Envelope, OnsetCurve};
 use crate::ai::eleven::{Preview, SpeechOutcome, SpeechRequest, VoiceInfo};
 use crate::ai::error::{AiError, Result};
 use crate::ai::frame::Poster;
 use crate::ai::gemini::{GenerateOutcome, ModelInfo};
+use crate::ai::scenes::SceneCuts;
 use crate::ai::secrets::KeyStatus;
-use crate::ai::{audio, eleven, frame, gemini, secrets};
+use crate::ai::{audio, eleven, frame, gemini, scenes, secrets};
 
 /// Wraps a blocking job so a panicking or cancelled task reads as an error
 /// rather than a silent hang in the UI.
@@ -98,6 +99,15 @@ pub async fn ai_audio_excerpt(path: String, start: f64, duration: f64) -> Result
     offload(move || audio::excerpt(&path, start, duration)).await
 }
 
+/// Where a reference video cuts, for the director's pacing analysis.
+///
+/// Deterministic, and free of any model: the pictures are measured, not
+/// described. See `ai::scenes` for what the measurement can and cannot tell.
+#[tauri::command]
+pub async fn ai_scene_cuts(path: String, threshold: f64, seconds: f64) -> Result<SceneCuts> {
+    offload(move || scenes::scenes(&path, threshold, seconds)).await
+}
+
 /// A single frame, for previewing a cut before it exists on the timeline.
 #[tauri::command]
 pub async fn ai_poster(path: String, at: f64, width: u32) -> Result<Poster> {
@@ -113,6 +123,21 @@ pub async fn ai_audio_envelope(
     buckets_per_second: f64,
 ) -> Result<Envelope> {
     offload(move || audio::envelope(&path, start, duration, buckets_per_second)).await
+}
+
+/// The per-band transient curve the AMV beat detector reads.
+///
+/// Returned whole rather than as a list of beats: picking the peaks out of it is
+/// pure arithmetic, and keeping that on the front-end is what lets the wizard
+/// re-detect on a sensitivity slider drag without decoding the track again.
+#[tauri::command]
+pub async fn ai_audio_onsets(
+    path: String,
+    start: f64,
+    duration: f64,
+    frames_per_second: f64,
+) -> Result<OnsetCurve> {
+    offload(move || audio::onsets(&path, start, duration, frames_per_second)).await
 }
 
 /* ---------------- Voice ---------------- */

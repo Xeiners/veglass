@@ -84,7 +84,7 @@ export interface ContextMenuState {
 }
 export type LeftTab = 'media' | 'effects' | 'mixer' | 'online';
 /** The right column is shared between the inspector and the AI assistant. */
-export type RightTab = 'inspector' | 'assistant';
+export type RightTab = 'inspector' | 'assistant' | 'director';
 
 /** One undo step: the document as it was, plus what the edit was called. */
 export interface HistoryEntry {
@@ -261,6 +261,20 @@ interface EditorState {
    * dragged-in one everywhere downstream.
    */
   importPaths(paths: string[]): Promise<number>;
+  /**
+   * Fills in the thumbnail and waveform of assets that arrived another way.
+   *
+   * A generator that adds media inside its own `transact` — the AMV sequencer's
+   * music and clips, a tutorial's voice-over takes — never passes through
+   * `importPaths`, and so never gets the decode pass everything imported by
+   * hand does. The result is a music clip on the timeline with no waveform
+   * under it, which on a montage cut to that music is precisely the thing you
+   * need to see.
+   *
+   * Asynchronous, and deliberately not awaited by its callers: the document is
+   * already correct without it, and this only makes it legible.
+   */
+  enrichAssets(assetIds: string[]): Promise<void>;
   removeAsset(assetId: string): void;
 
   addClip(assetId: string, options?: { trackId?: string; at?: number }): string | null;
@@ -1187,6 +1201,15 @@ export const useEditor = create<EditorState>((set, get) => {
       const assets = await Promise.all(wanted.map(assetFromPath));
       await registerAssets(assets);
       return assets.length;
+    },
+
+    async enrichAssets(assetIds) {
+      const project = get().project;
+      if (!project) return;
+
+      const wanted = new Set(assetIds);
+      const assets = project.assets.filter((asset) => wanted.has(asset.id) && !asset.missing);
+      await Promise.all(assets.map(enrichAsset));
     },
 
     removeAsset(assetId) {

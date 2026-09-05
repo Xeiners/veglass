@@ -196,6 +196,113 @@ export const PLAN_SCHEMA: Schema = {
 };
 
 /* ------------------------------------------------------------------ *
+ * Director
+ * ------------------------------------------------------------------ */
+
+/**
+ * One line per clip, in the order the frames were shown.
+ *
+ * An array of plain strings rather than objects keyed by name: the model is
+ * being asked to *look*, and asking it to also carry an identifier through is
+ * one more thing it can get subtly wrong. Position is unambiguous, and the
+ * caller only ever maps back as many entries as it actually sent frames for.
+ */
+export const CLIP_NOTES_SCHEMA: Schema = {
+  type: 'OBJECT',
+  properties: {
+    clips: {
+      type: 'ARRAY',
+      description:
+        'Une ligne par clip, dans l’ordre où ils ont été présentés. Quinze mots maximum chacune.',
+      items: STRING,
+    },
+  },
+  required: ['clips'],
+};
+
+/**
+ * The editing copilot's answer: something to say, and optionally a strategy.
+ *
+ * It lives here, beside the other three, because of what happened when it did
+ * not. Written in its own module it used lowercase type names — `object`,
+ * `string` — which read perfectly well and which Gemini refuses outright, so
+ * every turn of the conversation came back a request error. The dialect this
+ * API wants is the uppercase OpenAPI subset, and keeping all four schemas in
+ * one file is what stops the fourth from being written in a different one.
+ *
+ * Flat rather than nested: a model asked for `shot.intro` will sometimes answer
+ * with `shot` as a string, and a normaliser that never has to walk into a value
+ * has fewer ways to be wrong. Every field is optional but `say` — a turn that
+ * only answers a question must not be forced to restate the whole strategy.
+ */
+export const STRATEGY_SCHEMA: Schema = {
+  type: 'OBJECT',
+  properties: {
+    say: described(
+      STRING,
+      "Ta réponse dans le fil de discussion, en français, deux ou trois phrases. Parle du montage comme un monteur : jamais de JSON, de nom de champ ni de terme technique.",
+    ),
+    profile: {
+      type: 'STRING',
+      enum: ['aggressive', 'cinematic'],
+      description:
+        "« aggressive » pour un edit nerveux à coupes sèches, « cinematic » pour des fondus et des zooms lents.",
+    },
+    introShot: described(NUMBER, "Durée moyenne d'un plan pendant l'intro, en secondes."),
+    buildShot: described(NUMBER, 'Idem pendant la montée. Doit être inférieure à celle de l’intro.'),
+    dropShot: described(NUMBER, 'Idem pendant le drop. Doit être la plus courte des trois.'),
+    punch: described(BOOLEAN, 'Zooms saccadés sur les frappes.'),
+    flashes: described(BOOLEAN, 'Aplats de couleur et négatifs sur les impacts.'),
+    split: described(BOOLEAN, 'Aberration chromatique sur les plus gros temps du drop.'),
+    smear: described(BOOLEAN, 'Flou de mouvement directionnel sur chaque coupe.'),
+    opening: described(
+      STRING,
+      "Nom exact du clip à poser en tout premier — le plan d'ouverture. Choisis-le pour ce qu'il montre, pas au hasard.",
+    ),
+    introClips: {
+      type: 'ARRAY',
+      description:
+        "Noms exacts des clips à réserver à l'intro : les plus calmes, les plus stables, ceux qui peuvent être tenus longtemps.",
+      items: STRING,
+    },
+    buildClips: {
+      type: 'ARRAY',
+      description: "Noms exacts des clips à réserver à la montée.",
+      items: STRING,
+    },
+    dropClips: {
+      type: 'ARRAY',
+      description:
+        "Noms exacts des clips à réserver au drop : les plus dynamiques, ceux dont le mouvement encaisse une coupe courte.",
+      items: STRING,
+    },
+  },
+  required: ['say'],
+  /*
+   * `say` first, and that ordering is load-bearing rather than cosmetic.
+   *
+   * A model generates its answer in the order the schema declares it, so
+   * putting the justification before the numbers makes it reason *towards* the
+   * recipe instead of explaining one it has already committed to.
+   */
+  propertyOrdering: [
+    'say',
+    'opening',
+    'introClips',
+    'buildClips',
+    'dropClips',
+    'profile',
+    'introShot',
+    'buildShot',
+    'dropShot',
+    'punch',
+    'flashes',
+    'split',
+    'smear',
+  ],
+};
+
+/* ------------------------------------------------------------------ *
  * Transcription
  * ------------------------------------------------------------------ */
 

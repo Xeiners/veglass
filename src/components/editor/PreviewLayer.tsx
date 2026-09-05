@@ -16,6 +16,8 @@ import { measureBanner, paintBanner } from '@/lib/bannerPainter';
 import { paintCursor, resolvedPath } from '@/lib/cursorPainter';
 import { cssBlur, cssShadow, cssTint, backdropZoom } from '@/lib/backdrop';
 import { fittedSize } from '@/lib/geometry';
+import { filterDefs } from '@/lib/svgFilters';
+import { filterChainFor, type SvgFilterSpec } from '@/types/effects';
 import type { Backdrop } from '@/types/backdrop';
 import type { CursorLayer } from '@/types/cursor';
 import type { BackgroundLayer } from '@/types/background';
@@ -66,7 +68,23 @@ export function PreviewLayer({
   onChangeText?(content: string): void;
   onExitEdit?(): void;
 }) {
-  const { clip, opacity, filter } = spec;
+  const { clip, opacity } = spec;
+
+  /*
+   * The effect stack, in the viewer's own pixels.
+   *
+   * Built here rather than in the selector because a filter is **not** scaled
+   * by the transform that positions the layer, so a length in project pixels
+   * has to be converted by hand — and `unit` is a property of the stage, which
+   * a selector over the document has no business knowing. A blur of forty that
+   * ignored it would look right on a maximised window and three times too
+   * strong on a small one, while the file did something else again.
+   */
+  const chain = useMemo(
+    () => filterChainFor(clip.effects, unit, clip.id),
+    [clip.effects, clip.id, unit],
+  );
+  const filter = chain.css;
 
   /*
    * The glass, and the frame that floats on it.
@@ -105,6 +123,7 @@ export function PreviewLayer({
 
   return (
     <div className="pointer-events-none absolute inset-0 grid place-items-center">
+      <EffectFilters specs={chain.svg} />
       {backdrop && spec.asset && (
         <BackdropContent
           spec={spec}
@@ -442,6 +461,33 @@ function CursorContent({
  * chasing exact sync on a decorative layer would double the seeking work in the
  * viewer for nothing.
  */
+/**
+ * The SVG filters this layer's stack refers to.
+ *
+ * Rendered beside the layer rather than in one shared bank at the root, because
+ * the numbers change every frame — a chromatic split ramping down over four
+ * frames is four different filters — and a bank would have to be rebuilt from
+ * the whole document on each of them. Here React updates the attributes of a
+ * handful of nodes it already owns, alongside the layer they belong to.
+ *
+ * The markup comes from `lib/svgFilters` rather than being written as JSX, so
+ * the export bake mounts character-for-character the same filters when it draws
+ * a generated layer. Two renderers of one filter is how a preview and a file
+ * drift apart, which is the whole thing this feature is trying not to do.
+ */
+function EffectFilters({ specs }: { specs: SvgFilterSpec[] }) {
+  const markup = useMemo(() => filterDefs(specs), [specs]);
+  if (specs.length === 0) return null;
+
+  return (
+    <svg aria-hidden focusable="false" className="pointer-events-none absolute h-0 w-0">
+      {/* Generated entirely from numbers we formatted — there is no user text
+          anywhere in it, and the ids come from `uid`'s own alphabet. */}
+      <defs dangerouslySetInnerHTML={{ __html: markup }} />
+    </svg>
+  );
+}
+
 function BackdropContent({
   spec,
   backdrop,

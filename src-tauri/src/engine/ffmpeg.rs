@@ -133,6 +133,84 @@ fn from_db(db: f64) -> f64 {
 /// Beyond this, a piecewise expression gets unwieldy; the curve is decimated.
 const MAX_BREAKPOINTS: usize = 96;
 
+/*
+ * The command line has a ceiling, and a montage can walk straight into it.
+ *
+ * `CreateProcess` refuses anything past 32 767 characters, and Windows reports
+ * that refusal as `os error 206` — "the filename or extension is too long",
+ * which names the wrong thing entirely and sends everyone looking at their
+ * paths. What is actually too long is the whole argument list, and on a
+ * rhythmic montage it is the *filtergraph*: two hundred shots, each with its
+ * own sampled camera curve and a handful of gated impact filters, run to
+ * several hundred thousand characters on their own.
+ *
+ * ffmpeg's answer is to read the graph from a file. The option used to be
+ * `-filter_complex_script`; it was withdrawn in ffmpeg 7 in favour of the
+ * generic `-/name file` form, which is what current builds accept and what this
+ * uses.
+ *
+ * The spill is conditional rather than unconditional, and deliberately so:
+ * every export that fits today keeps the exact command line it has always had,
+ * and the new path is taken only where the old one could not run at all.
+ */
+const COMMAND_LIMIT: usize = 32_767;
+
+/// Headroom kept under the ceiling.
+///
+/// Windows quotes any argument containing a space when it rebuilds the line, so
+/// what it measures is longer than the sum of the parts — and the program path
+/// itself is counted too. A couple of thousand characters of slack costs
+/// nothing and removes a whole class of "worked on my machine".
+const COMMAND_HEADROOM: usize = 2_767;
+
+/// What the argument list may reach before the graph is moved out of it.
+///
+/// Derived from the ceiling rather than written beside it, so the two cannot
+/// drift apart: the budget *is* the limit less the slack, and saying so is the
+/// only way that stays true.
+const COMMAND_BUDGET: usize = COMMAND_LIMIT - COMMAND_HEADROOM;
+
+/// What Windows will actually measure, for `program` invoked with `args`.
+///
+/// Every argument is separated by a space and may be wrapped in quotes, so each
+/// is counted with three characters of overhead rather than one.
+pub fn command_length(program: &Path, args: &[String]) -> usize {
+    program.as_os_str().len() + args.iter().map(|arg| arg.len() + 3).sum::<usize>()
+}
+
+/// Moves the filtergraph out of the argument list and into `file`.
+///
+/// Returns `false` when there was no graph to move, which is not a failure: an
+/// audio-only render has none.
+pub fn spill_graph(args: &mut [String], file: &Path) -> Result<bool, String> {
+    let Some(index) = args.iter().position(|arg| arg == "-filter_complex") else {
+        return Ok(false);
+    };
+    let Some(graph) = args.get(index + 1).cloned() else {
+        return Ok(false);
+    };
+
+    std::fs::write(file, graph.as_bytes())
+        .map_err(|error| format!("Impossible d'écrire le graphe de filtres : {error}"))?;
+
+    args[index] = "-/filter_complex".to_string();
+    args[index + 1] = file.to_string_lossy().to_string();
+    Ok(true)
+}
+
+/// Deletes the spilled graph when the encode ends, however it ends.
+///
+/// A guard rather than a call at the bottom: an encode returns from a dozen
+/// places — cancelled, failed, interrupted — and a temporary file left behind
+/// by each of them turns a long session into a littered temp directory.
+struct Spilled(PathBuf);
+
+impl Drop for Spilled {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// Which elementary streams a source file actually carries.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Streams {
@@ -306,6 +384,151 @@ fn ramp_expression(points: &[Breakpoint], time: &str) -> Option<String> {
     Some(format!("if(lt({time},{:.4}),{:.4},{expr})", first.time, first.value))
 }
 
+/// The curve's value at `time`, held flat outside its own span.
+///
+/// The same rule the preview's evaluator follows: an animation does not
+/// extrapolate past its own ends. The points arrive piecewise linear — the
+/// front-end flattened the easing before sending them — so this is a walk
+/// rather than a solve.
+fn value_at(points: &[Breakpoint], time: f64) -> f64 {
+    let Some(first) = points.first() else {
+        return 0.0;
+    };
+    if time <= first.time {
+        return first.value;
+    }
+    let last = points[points.len() - 1];
+    if time >= last.time {
+        return last.value;
+    }
+
+    for window in points.windows(2) {
+        let (a, b) = (window[0], window[1]);
+        if time < a.time || time > b.time {
+            continue;
+        }
+        let span = b.time - a.time;
+        if span <= 1e-9 {
+            return b.value;
+        }
+        return a.value + (b.value - a.value) * ((time - a.time) / span);
+    }
+
+    last.value
+}
+
+/// Ceiling on the gated copies one animated parameter may produce.
+///
+/// Reached only by an animation long enough for its *rounded* value to change
+/// dozens of times; the few frames an impact lasts produce a handful. Past it
+/// the parameter is held at its static value and the caller says so, which is a
+/// far better outcome than a filtergraph with three hundred stages in it.
+const MAX_STEPS: usize = 48;
+
+/// Plays a curve through a filter that cannot read a clock.
+///
+/// Some filters take no expression at all: `rgbashift` reads plain integers and
+/// `gblur` fixes its kernel when it is built, so the `ramp_expression` trick the
+/// rest of the chain leans on is simply not available to them. Nearly every
+/// filter honours `enable`, though — so a curve can be *played* by laying
+/// several copies of the filter end to end, each holding one value across the
+/// frames it owns.
+///
+/// The runs are found by **sampling at the frame rate and coalescing identical
+/// filter strings**, not by quantising the parameter. That distinction is the
+/// whole correctness argument: two amounts a pixel apart can build the same
+/// `rgbashift`, and two that quantise alike can build different ones once an
+/// angle moves as well. Comparing what would actually be emitted is exact for
+/// any parameter, and for any number of them at once.
+///
+/// Windows are half-open — `gte(t,a)*lt(t,b)` rather than `between` — because
+/// `between` is inclusive at both ends, and two neighbouring runs would both be
+/// enabled on the frame they share. Two copies of a shift on one frame is
+/// double the shift, once, in the middle of the ramp.
+///
+/// `None` when the curve would need more copies than [`MAX_STEPS`].
+fn stepped_filters(
+    amount: Option<&[Breakpoint]>,
+    angle: Option<&[Breakpoint]>,
+    static_amount: f64,
+    static_angle: f64,
+    fps: f64,
+    time: &str,
+    build: impl Fn(f64, f64) -> Option<String>,
+) -> Option<Vec<String>> {
+    let rate = fps.max(1.0);
+    let span = |points: Option<&[Breakpoint]>| -> Option<(f64, f64)> {
+        let points = points?;
+        Some((points.first()?.time, points.last()?.time))
+    };
+
+    let (from, to) = match (span(amount), span(angle)) {
+        (Some(a), Some(b)) => (a.0.min(b.0), a.1.max(b.1)),
+        (Some(a), None) | (None, Some(a)) => a,
+        (None, None) => return Some(build(static_amount, static_angle).into_iter().collect()),
+    };
+
+    // The grid is anchored at zero rather than at the curve, because that is
+    // where the encoder's own frames are: the clip starts at clip-relative zero
+    // and every frame after it lands on a multiple of the period. A boundary
+    // placed anywhere else would cut a frame in half, and `enable` would decide
+    // it on the wrong side.
+    let first = (from * rate).floor() as i64;
+    let last = (to * rate).ceil() as i64;
+
+    let mut runs: Vec<(i64, Option<String>)> = Vec::new();
+    for frame in first..=last {
+        // Sampled mid-frame: the value a frame should carry is the one at its
+        // middle, not the one on the boundary it shares with its neighbour.
+        let at = (frame as f64 + 0.5) / rate;
+        let current = build(
+            amount.map(|points| value_at(points, at)).unwrap_or(static_amount),
+            angle.map(|points| value_at(points, at)).unwrap_or(static_angle),
+        );
+
+        match runs.last() {
+            Some((_, previous)) if *previous == current => {}
+            _ => runs.push((frame, current)),
+        }
+    }
+
+    if runs.iter().filter(|(_, filter)| filter.is_some()).count() > MAX_STEPS {
+        return None;
+    }
+
+    let mut out = Vec::new();
+    for (index, (frame, filter)) in runs.iter().enumerate() {
+        let Some(filter) = filter else { continue };
+
+        // The first run reaches back before the animation and the last reaches
+        // past it, which is exactly how a held value behaves either side of a
+        // curve. Only the boundaries between two runs are ever stated.
+        let opens = index > 0;
+        let closes = index + 1 < runs.len();
+        let start = *frame as f64 / rate;
+        let end = runs
+            .get(index + 1)
+            .map(|(next, _)| *next as f64 / rate)
+            .unwrap_or(0.0);
+
+        let gate = match (opens, closes) {
+            (false, false) => None,
+            (true, false) => Some(format!("gte({time},{start:.4})")),
+            (false, true) => Some(format!("lt({time},{end:.4})")),
+            (true, true) => Some(format!("gte({time},{start:.4})*lt({time},{end:.4})")),
+        };
+
+        out.push(match gate {
+            // Quoted: the expression is full of commas, which a filtergraph
+            // would otherwise read as the end of this filter.
+            Some(gate) => format!("{filter}:enable='{gate}'"),
+            None => filter.clone(),
+        });
+    }
+
+    Some(out)
+}
+
 /// Filter chain for a segment whose effect parameters are animated.
 ///
 /// `eq` and `hue` accept per-frame expressions; `gblur` does not, so an animated
@@ -313,6 +536,7 @@ fn ramp_expression(points: &[Breakpoint], time: &str) -> Option<String> {
 fn animated_effect_filters(
     segment: &RenderSegment,
     time: &str,
+    fps: f64,
 ) -> (Vec<String>, Vec<String>) {
     let mut filters = Vec::new();
     let mut warnings = Vec::new();
@@ -321,11 +545,14 @@ fn animated_effect_filters(
         if !effect.enabled {
             continue;
         }
-        let curve = |key: &str| -> Option<String> {
+        let points = |key: &str| -> Option<&[Breakpoint]> {
             segment
                 .animated
                 .get(&format!("fx:{}:{}", effect.id, key))
-                .and_then(|points| ramp_expression(points, time))
+                .map(|values| values.as_slice())
+        };
+        let curve = |key: &str| -> Option<String> {
+            points(key).and_then(|values| ramp_expression(values, time))
         };
 
         match effect.kind.as_str() {
@@ -384,6 +611,63 @@ fn animated_effect_filters(
                 let value = effect.param("radius", 0.0);
                 if value > 0.0 {
                     filters.push(format!("gblur=sigma={:.2}", value / 2.0));
+                }
+            }
+            "invert" => {
+                // Same limitation as the blur, for a different reason: `lutrgb`
+                // builds its table once at init, so there is no `t` for a curve
+                // to be a function of. A negative flash does not need one — it
+                // is a couple of frames of a clip that is either inverted or is
+                // not — but an animated dosage would silently freeze, and this
+                // codebase says so instead.
+                if curve("amount").is_some() {
+                    warnings.push(format!(
+                        "Le négatif animé de « {} » n'est pas rendu image par image — ffmpeg n'accepte pas d'expression pour lutrgb",
+                        segment.source
+                    ));
+                }
+                let value = effect.param("amount", 0.0);
+                if value > 0.0 {
+                    filters.push(crate::engine::effects::invert_filter(value));
+                }
+            }
+            /*
+             * The two impact effects, played through `enable` rather than
+             * through an expression.
+             *
+             * Both take a length and an angle, both refuse expressions, and
+             * both honour the timeline — so one branch serves them, differing
+             * only in which mapping builds the string.
+             */
+            "rgbsplit" | "motionblur" => {
+                let build: fn(f64, f64) -> Option<String> = if effect.kind == "rgbsplit" {
+                    crate::engine::effects::rgb_split_filter
+                } else {
+                    crate::engine::effects::motion_blur_filter
+                };
+                let amount = effect.param("amount", 0.0);
+                let angle = effect.param("angle", 0.0);
+
+                match stepped_filters(
+                    points("amount"),
+                    points("angle"),
+                    amount,
+                    angle,
+                    fps,
+                    time,
+                    build,
+                ) {
+                    Some(steps) => filters.extend(steps),
+                    None => {
+                        warnings.push(format!(
+                            "L'animation de « {} » sur « {} » change trop souvent pour être rendue image par image — elle est figée à sa valeur de repos",
+                            if effect.kind == "rgbsplit" { "l'aberration chromatique" } else { "le flou de mouvement" },
+                            segment.source
+                        ));
+                        if let Some(filter) = build(amount, angle) {
+                            filters.push(filter);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -621,7 +905,7 @@ pub fn build_args(
                 .keys()
                 .any(|channel| channel.starts_with("fx:"))
             {
-                let (filters, notes) = animated_effect_filters(segment, &pre_time);
+                let (filters, notes) = animated_effect_filters(segment, &pre_time, fps);
                 chain.extend(filters);
                 warnings.extend(notes);
             } else {
@@ -1124,8 +1408,29 @@ impl Encoder for FfmpegEncoder {
             }
         }
 
-        let command = build_args(plan, &streams, output, &self.settings)?;
+        let mut command = build_args(plan, &streams, output, &self.settings)?;
         let total = command.total_frames;
+
+        /*
+         * Spill the graph when the line would not fit.
+         *
+         * Kept alive for the whole encode: dropping the guard removes the file,
+         * and ffmpeg reads it after it has started.
+         */
+        let _spilled = if command_length(&self.program, &command.args) > COMMAND_BUDGET {
+            let file = std::env::temp_dir().join(format!(
+                "veglass-graph-{}.txt",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|value| value.as_nanos())
+                    .unwrap_or(0)
+            ));
+            spill_graph(&mut command.args, &file)?.then_some(Spilled(file))
+        } else {
+            None
+        };
+        let spilled = _spilled.is_some();
+
         self.control.arm();
 
         on_progress(EncodeProgress {
@@ -1220,8 +1525,19 @@ impl Encoder for FfmpegEncoder {
                 .find(|line| line.contains("Error") || line.contains("error") || line.contains("Invalid"))
                 .cloned()
                 .unwrap_or_else(|| tail.last().cloned().unwrap_or_default());
+            /*
+             * `-/filter_complex` is recent. A build old enough to refuse it
+             * cannot render a montage this size at all — the graph does not fit
+             * on a command line — and saying which of the two problems this is
+             * saves someone a long hunt through their filters.
+             */
+            let hint = if spilled && detail.contains("Unrecognized option") {
+                "\nCe montage a trop de plans pour tenir sur une ligne de commande, et cette version de ffmpeg ne sait pas lire un graphe depuis un fichier. Mettez ffmpeg à jour, ou raccourcissez le montage."
+            } else {
+                ""
+            };
             Err(format!(
-                "ffmpeg a échoué (code {}). {detail}",
+                "ffmpeg a échoué (code {}). {detail}{hint}",
                 status.code().unwrap_or(-1)
             ))
         }
@@ -1915,6 +2231,314 @@ mod tests {
         small.resolution = "720".into();
         let g = graph(&build_args(&plan(vec![segment("video", 0, "/m/a.mp4")], vec![]), &HashMap::new(), Path::new("o.mp4"), &small).unwrap().args);
         assert!(g.contains("scale=-2:720:flags=lanczos"));
+    }
+
+    /// Pulls the red horizontal shift back out of an emitted `rgbashift`.
+    fn shift_of(filter: &str) -> i64 {
+        filter
+            .split("rh=")
+            .nth(1)
+            .and_then(|rest| rest.split(':').next())
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("pas de rh= dans {filter}"))
+    }
+
+    /// Pulls a bound out of a gate: `gte(t,0.0333)` or `lt(t,0.0667)`.
+    fn bound_of(filter: &str, function: &str) -> Option<f64> {
+        filter
+            .split(&format!("{function}(t,"))
+            .nth(1)
+            .and_then(|rest| rest.split(')').next())
+            .and_then(|value| value.parse().ok())
+    }
+
+    #[test]
+    fn an_unanimated_stepped_filter_is_emitted_once_and_ungated() {
+        let out = stepped_filters(
+            None,
+            None,
+            10.0,
+            0.0,
+            30.0,
+            "t",
+            crate::engine::effects::rgb_split_filter,
+        )
+        .expect("well under the cap");
+
+        assert_eq!(out, ["rgbashift=rh=10:rv=0:bh=-10:bv=0:edge=smear"]);
+        // Nothing to gate: a constant is on for the whole clip, and an `enable`
+        // that is always true is a per-frame expression bought for nothing.
+        assert!(!out[0].contains("enable"));
+    }
+
+    #[test]
+    fn a_neutral_stepped_filter_costs_no_pass_at_all() {
+        let out = stepped_filters(
+            None,
+            None,
+            0.0,
+            0.0,
+            30.0,
+            "t",
+            crate::engine::effects::rgb_split_filter,
+        )
+        .expect("nothing to cap");
+        assert!(out.is_empty());
+    }
+
+    /// The shape an impact actually produces: a short ramp, played as a handful
+    /// of gated copies that hand over frame by frame.
+    #[test]
+    fn a_stepped_curve_becomes_gated_copies_that_never_overlap() {
+        let points = vec![
+            Breakpoint { time: 0.0, value: 12.0 },
+            Breakpoint { time: 5.0 / 30.0, value: 0.0 },
+        ];
+        let out = stepped_filters(
+            Some(&points),
+            None,
+            12.0,
+            0.0,
+            30.0,
+            "t",
+            crate::engine::effects::rgb_split_filter,
+        )
+        .expect("a five-frame ramp is well under the cap");
+
+        assert!(out.len() >= 3, "a ramp is more than one step: {out:?}");
+
+        // The fringe closes over the ramp rather than jumping about.
+        let shifts: Vec<i64> = out.iter().map(|filter| shift_of(filter)).collect();
+        assert!(
+            shifts.windows(2).all(|pair| pair[0] > pair[1]),
+            "shifts should fall away: {shifts:?}"
+        );
+
+        // The first copy reaches back before the curve, because a value held
+        // flat before its first keyframe is what the preview shows too.
+        assert!(bound_of(&out[0], "gte").is_none(), "{}", out[0]);
+
+        // Half-open and butted together: every frame is covered by exactly one
+        // copy. `between` would put two shifts on each shared frame.
+        for pair in out.windows(2) {
+            let closes = bound_of(&pair[0], "lt").expect("a run that has a successor closes");
+            let opens = bound_of(&pair[1], "gte").expect("a run that has a predecessor opens");
+            assert!(
+                (closes - opens).abs() < 1e-6,
+                "gap or overlap between {} and {}",
+                pair[0],
+                pair[1]
+            );
+        }
+
+        // The tail of the ramp is neutral, so it is dropped rather than emitted
+        // as a shift of zero.
+        let last = out.last().expect("at least one");
+        assert!(bound_of(last, "lt").is_some(), "the neutral tail is not emitted: {last}");
+    }
+
+    #[test]
+    fn a_curve_that_changes_too_often_gives_up_rather_than_flooding_the_graph() {
+        // Sixty pixels of travel over four seconds: one distinct rounded shift
+        // per pixel, which is more copies than a graph should ever carry.
+        let points = vec![
+            Breakpoint { time: 0.0, value: 0.0 },
+            Breakpoint { time: 4.0, value: 60.0 },
+        ];
+        assert!(stepped_filters(
+            Some(&points),
+            None,
+            0.0,
+            0.0,
+            30.0,
+            "t",
+            crate::engine::effects::rgb_split_filter,
+        )
+        .is_none());
+    }
+
+    /// Both parameters at once, which is the case quantising the *amount*
+    /// would have got wrong: the angle alone changes what is emitted.
+    #[test]
+    fn a_stepped_filter_follows_every_parameter_it_has() {
+        let angle = vec![
+            Breakpoint { time: 0.0, value: 0.0 },
+            Breakpoint { time: 4.0 / 30.0, value: 90.0 },
+        ];
+        let out = stepped_filters(
+            None,
+            Some(&angle),
+            10.0,
+            0.0,
+            30.0,
+            "t",
+            crate::engine::effects::rgb_split_filter,
+        )
+        .expect("under the cap");
+
+        assert!(out.len() > 1, "a turning split is not one filter: {out:?}");
+
+        // It starts sideways and ends vertical. Stated as which axis leads
+        // rather than as exact offsets, because each copy is sampled at the
+        // *middle* of the frame it covers — so the first one has already turned
+        // a fraction of the way, which is the honest value for that frame.
+        let vertical = |filter: &str| -> i64 {
+            filter
+                .split("rv=")
+                .nth(1)
+                .and_then(|rest| rest.split(':').next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("pas de rv= dans {filter}"))
+        };
+
+        let first = out.first().expect("at least one");
+        let last = out.last().expect("at least one");
+        assert!(shift_of(first) > vertical(first), "should open sideways: {first}");
+        assert!(vertical(last) > shift_of(last), "should close vertical: {last}");
+    }
+
+    /* -------------------------------------------------------------- *
+     * The command line has a ceiling.
+     *
+     * A rhythmic montage is the first thing this codebase builds that can
+     * exceed it. Windows reports the refusal as `os error 206` — "the filename
+     * or extension is too long" — which names the wrong thing and sends
+     * everyone looking at their paths, so these pin the real cause and the way
+     * around it.
+     * -------------------------------------------------------------- */
+
+    /// A montage-sized plan: many short shots, each with its own camera curve
+    /// and its own gated impact filters. This is what an AMV actually produces.
+    fn montage(shots: usize) -> RenderPlan {
+        let mut segments = Vec::with_capacity(shots);
+        for index in 0..shots {
+            let mut shot = segment("video", 0, "C:\\Users\\quelquun\\Videos\\rushes\\scene.mp4");
+            let at = index as f64 * 0.3;
+            shot.timeline_in = at;
+            shot.timeline_out = at + 0.3;
+            shot.render_in = at;
+            shot.render_out = at + 0.3;
+
+            // The punch: three keys, flattened to breakpoints by the front-end.
+            let mut scale = Vec::new();
+            for step in 0..24 {
+                let progress = step as f64 / 23.0;
+                scale.push(Breakpoint {
+                    time: progress * 0.3,
+                    value: 1.0 + 0.15 * (1.0 - (progress - 0.2).abs()),
+                });
+            }
+            shot.animated.insert("scale".into(), scale);
+
+            // A smear on every cut, and a split on the heavy ones.
+            let mut effects = vec![crate::model::Effect {
+                id: format!("fx{index}a"),
+                kind: "motionblur".into(),
+                enabled: true,
+                params: HashMap::new(),
+            }];
+            let mut decay = Vec::new();
+            for step in 0..8 {
+                decay.push(Breakpoint {
+                    time: step as f64 * 0.012,
+                    value: 16.0 * (1.0 - step as f64 / 7.0),
+                });
+            }
+            shot.animated.insert(format!("fx:fx{index}a:amount"), decay.clone());
+
+            if index % 4 == 0 {
+                effects.push(crate::model::Effect {
+                    id: format!("fx{index}b"),
+                    kind: "rgbsplit".into(),
+                    enabled: true,
+                    params: HashMap::new(),
+                });
+                shot.animated.insert(format!("fx:fx{index}b:amount"), decay);
+            }
+            shot.effects = effects;
+            segments.push(shot);
+        }
+
+        let mut out = plan(segments, vec![]);
+        out.duration = shots as f64 * 0.3;
+        out.frame_count = (out.duration * 30.0) as u64;
+        out
+    }
+
+    #[test]
+    fn a_length_counts_the_program_and_every_argument() {
+        let program = Path::new("C:\\ffmpeg.exe");
+        let bare = command_length(program, &[]);
+        assert_eq!(bare, program.as_os_str().len());
+        // Three characters of overhead each: a separator and the quotes Windows
+        // adds back when it rebuilds the line.
+        assert_eq!(command_length(program, &["ab".to_string()]), bare + 5);
+    }
+
+    /// The failure this exists to fix, reproduced.
+    #[test]
+    fn a_two_hundred_shot_montage_will_not_fit_on_a_command_line() {
+        let big = montage(200);
+        let built = build_args(&big, &HashMap::new(), Path::new("out.mp4"), &ExportSettings::default())
+            .expect("le graphe se construit");
+
+        let length = command_length(Path::new("C:\\ffmpeg.exe"), &built.args);
+        assert!(
+            length > COMMAND_LIMIT,
+            "attendu au-delà de la limite Windows, mesuré {length}"
+        );
+    }
+
+    #[test]
+    fn spilling_the_graph_brings_it_back_under_the_limit() {
+        let big = montage(200);
+        let mut built =
+            build_args(&big, &HashMap::new(), Path::new("out.mp4"), &ExportSettings::default())
+                .expect("le graphe se construit");
+
+        let graph = {
+            let index = built.args.iter().position(|a| a == "-filter_complex").unwrap();
+            built.args[index + 1].clone()
+        };
+
+        let file = std::env::temp_dir().join("veglass-graph-test.txt");
+        assert!(spill_graph(&mut built.args, &file).expect("écriture du graphe"));
+
+        let length = command_length(Path::new("C:\\ffmpeg.exe"), &built.args);
+        assert!(
+            length < COMMAND_BUDGET,
+            "toujours trop long après déport : {length}"
+        );
+
+        // The graph reaches the file byte for byte: ffmpeg reads exactly what
+        // it would have been handed inline.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), graph);
+        assert!(built.args.iter().any(|a| a == "-/filter_complex"));
+        assert!(!built.args.iter().any(|a| a == "-filter_complex"));
+
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn an_ordinary_render_is_left_exactly_as_it_was() {
+        // One clip: the command line is nowhere near the ceiling, and must keep
+        // the inline graph every existing test and install already expects.
+        let small = plan(vec![segment("video", 0, "/m/a.mp4")], vec![]);
+        let built =
+            build_args(&small, &HashMap::new(), Path::new("out.mp4"), &ExportSettings::default())
+                .expect("le graphe se construit");
+
+        assert!(command_length(Path::new("/usr/bin/ffmpeg"), &built.args) < COMMAND_BUDGET);
+        assert!(built.args.iter().any(|a| a == "-filter_complex"));
+    }
+
+    #[test]
+    fn a_render_with_no_graph_at_all_spills_nothing() {
+        let mut args = vec!["-i".to_string(), "a.wav".to_string()];
+        let file = std::env::temp_dir().join("veglass-graph-none.txt");
+        assert!(!spill_graph(&mut args, &file).expect("rien à déporter"));
+        assert_eq!(args, ["-i", "a.wav"]);
+        assert!(!file.exists());
     }
 
     #[test]

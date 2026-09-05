@@ -16,6 +16,7 @@
 
 import { uid } from '@/lib/id';
 import { buildSubtitleClips } from '@/lib/ai/subtitles';
+import { namedTrack, withTrack } from '@/lib/tracks';
 import { snapToFrame } from '@/lib/time';
 import { planShots, restingCamera, smartZoom } from './zoom';
 import { cursorFromSteps, placeCursor } from './cursor';
@@ -32,7 +33,7 @@ import type { AnimationMap, Easing, Keyframe } from '@/types/animation';
 import type { Marker } from '@/types/marker';
 import type { MediaAsset } from '@/types/media';
 import type { Project } from '@/types/project';
-import { DEFAULT_TRACK_HEIGHT, clipEnd, type Clip, type Track } from '@/types/timeline';
+import { clipEnd, type Clip } from '@/types/timeline';
 import {
   CHAPTER_COLOR,
   SCREEN_TRACK_NAME,
@@ -176,46 +177,6 @@ export function duckingCurve(
 
   return keys.length >= 2 ? keys : null;
 }
-
-/* ------------------------------------------------------------------ *
- * Tracks
- * ------------------------------------------------------------------ */
-
-/**
- * A named track, reused across runs rather than stacked.
- *
- * Same bargain the viral pass strikes with "Clips viraux": running the wizard
- * twice should give two tutorials one after the other, not two layers of tracks
- * that have to be tidied up by hand.
- */
-function namedTrack(
-  project: Project,
-  name: string,
-  kind: Track['kind'],
-): { track: Track; created: boolean } {
-  const existing = project.tracks.find((track) => track.kind === kind && track.name === name);
-  if (existing) return { track: existing, created: false };
-
-  return {
-    track: {
-      id: uid('tr'),
-      kind,
-      name,
-      height: DEFAULT_TRACK_HEIGHT,
-      muted: false,
-      solo: false,
-      locked: false,
-      hidden: false,
-    },
-    created: true,
-  };
-}
-
-/** Video layers stack on top, audio layers below — the compositing order. */
-const withTrack = (tracks: Track[], created: Track | null): Track[] => {
-  if (!created) return tracks;
-  return created.kind === 'video' ? [created, ...tracks] : [...tracks, created];
-};
 
 /* ------------------------------------------------------------------ *
  * Captions

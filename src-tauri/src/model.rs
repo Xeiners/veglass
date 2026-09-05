@@ -108,6 +108,7 @@ pub struct Track {
 pub struct Effect {
     pub id: String,
     /// `brightness` | `contrast` | `saturation` | `blur` | `hue` | `grayscale`
+    /// | `invert`
     pub kind: String,
     pub enabled: bool,
     #[serde(default)]

@@ -320,6 +320,18 @@ export function paintBackground(
   const travelled = Number.isFinite(phase) ? phase : 0;
 
   switch (layer.kind) {
+    case 'solid':
+      /*
+       * The base fill above is the whole layer, and it leaves before the
+       * vignette.
+       *
+       * That skip is the point rather than an optimisation. Darkening the
+       * corners is what stops a *pattern* looking machine-drawn, but it would
+       * make a white flash read as a spotlight and a colour card as a gradient
+       * — and a veil that is not uniform is not a veil.
+       */
+      ctx.restore();
+      return;
     case 'bokeh':
       bokeh(ctx, layer, travelled, width, height);
       break;

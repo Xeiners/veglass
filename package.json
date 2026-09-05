@@ -1,7 +1,7 @@
 {
   "name": "veglass",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.2.0",
   "type": "module",
   "description": "Veglass — fast, hybrid video editor. Tauri + React + TypeScript.",
   "scripts": {
