@@ -30,6 +30,8 @@ export interface Project {
    * see `types/progress` for why it belongs here and not to a clip.
    */
   progress?: ProgressBar;
+  /** Reusable instructions for tutorial narration on timeline selections. */
+  tutorialContext?: string;
   /** Bumped whenever the on-disk shape changes, so we can migrate. */
   schemaVersion: number;
 }
@@ -70,8 +72,9 @@ export interface ProjectSummary {
  *       contains, and an optional field read through `clip.backdrop ?? …`.
  * 10 → 11 added `project.progress`. Optional, absent on everything written
  *       before it, and read through `draws()` — no migration, again.
+ * 11 → 12 adds optional `tutorialContext`, empty on older projects.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export interface ResolutionPreset {
   id: string;

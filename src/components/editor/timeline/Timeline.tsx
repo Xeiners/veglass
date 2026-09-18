@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Captions,
+  Mic,
   Copy,
   Magnet,
   LineChart,
@@ -20,6 +21,7 @@ import { useDrag } from '@/hooks/useDrag';
 import { IconButton } from '@/components/ui/Button';
 import { projectDuration, useEditor } from '@/store/editorStore';
 import { useAi } from '@/store/aiStore';
+import { useRangeNarration } from '@/store/rangeNarrationStore';
 import {
   applySnap,
   nearestAnchor,
@@ -967,6 +969,7 @@ export function Timeline() {
  * "couper intelligemment" beside it rather than inside a chat.
  */
 function AiTools() {
+  const openNarration = useRangeNarration(state => state.openWizard);
   const openSubtitles = useAi((state) => state.openSubtitles);
   const openSmartCut = useAi((state) => state.openSmartCut);
   const busy = useAi((state) => state.job !== null);
@@ -979,6 +982,10 @@ function AiTools() {
 
   return (
     <>
+      <button type="button" className={style} onClick={openNarration} title="Voix off sur la plage I/O — contexte conservé dans le projet">
+        <Mic size={12} strokeWidth={2.4} />
+        Voix sur plage
+      </button>
       <button
         type="button"
         disabled={busy}

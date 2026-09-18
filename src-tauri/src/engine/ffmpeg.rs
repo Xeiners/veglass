@@ -131,7 +131,12 @@ fn from_db(db: f64) -> f64 {
 }
 
 /// Beyond this, a piecewise expression gets unwieldy; the curve is decimated.
-const MAX_BREAKPOINTS: usize = 96;
+///
+/// Each point becomes one nested `if()` in ffmpeg's expression evaluator.
+/// Its parser rejects a curve of 96 points with “Missing ')' or too many args”,
+/// which surfaces only as its unhelpful `Invalid argument` exit code. Forty-eight
+/// points preserves the motion while staying below that nesting ceiling.
+const MAX_BREAKPOINTS: usize = 48;
 
 /*
  * The command line has a ceiling, and a montage can walk straight into it.

@@ -42,6 +42,7 @@ import { DEFAULT_SPLIT_OPTIONS, splitTextClips, type SplitOptions } from '@/lib/
 import { placeBackground } from '@/lib/backgroundLayer';
 import { bannerAnimation, placePreset } from '@/lib/bannerLayer';
 import { cameraOn, fittedSize } from '@/lib/geometry';
+import { fitClip, FRAMING_CHANNELS } from '@/lib/fitClip';
 import type { Backdrop } from '@/types/backdrop';
 import { retargetProject, type RetargetOptions } from '@/lib/retarget';
 import type { ScreenPoint } from '@/types/geometry';
@@ -364,6 +365,7 @@ interface EditorState {
   setBackdrop(clipId: string, backdrop: Backdrop | null): void;
   updateBackdrop(clipId: string, patch: Partial<Backdrop>): void;
   setClipAnchor(clipId: string, anchor: ScreenPoint): void;
+  fitClipToFrame(clipId: string): void;
   retargetTo(settings: ProjectSettings, options?: RetargetOptions): void;
   /** Turns keyframing on (seeding a key at the playhead) or off (freezing the current value). */
   toggleChannel(clipId: string, channel: string): void;
@@ -1316,6 +1318,23 @@ export const useEditor = create<EditorState>((set, get) => {
 
     setCropMode(on) {
       set({ cropMode: on });
+    },
+
+    fitClipToFrame(clipId) {
+      const project = get().project;
+      const clip = project?.clips.find((item) => item.id === clipId);
+      const asset = project?.assets.find((item) => item.id === clip?.assetId);
+      if (!project || !clip || !asset || clip.kind !== 'media' || asset.kind !== 'video' ||
+        project.tracks.find((track) => track.id === clip.trackId)?.locked) return;
+      patchProject((current) => ({
+        ...current,
+        clips: current.clips.map((item) => item.id === clipId ? fitClip(item, asset) : item),
+      }), { label: 'afficher l’image entière' });
+      set((state) => ({
+        cropMode: false,
+        selectedKeyframes: state.selectedKeyframes.filter((ref) => ref.clipId !== clipId ||
+          !FRAMING_CHANNELS.includes(ref.channel as typeof FRAMING_CHANNELS[number])),
+      }));
     },
 
     setBackdrop(clipId, backdrop) {

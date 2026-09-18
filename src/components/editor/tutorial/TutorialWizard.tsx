@@ -12,6 +12,7 @@ import {
 
 import { cn } from '@/lib/cn';
 import { formatClock } from '@/lib/time';
+import { MAX_TOTAL_FRAMES, MIN_TOTAL_FRAMES, normalizeFrameCount, samplingPlan } from '@/lib/tutorial/frames';
 import { Button } from '@/components/ui/Button';
 import { Field, Input, OptionCard } from '@/components/ui/Field';
 import { Footer, Toggle, Warning } from '@/components/ui/Wizard';
@@ -337,10 +338,63 @@ function SettingsStep() {
   const voiceReady = canSpeak(voice);
 
   const asset = (project?.assets ?? []).find((item) => item.id === options.assetId) ?? null;
+  const [frameDraft, setFrameDraft] = useState(String(options.frameCount ?? 120));
+  const customFrames = options.frameCount != null;
+  const parsedFrames = Number(frameDraft);
+  const invalidFrames = customFrames && (!frameDraft.trim() || !Number.isInteger(parsedFrames) || parsedFrames < MIN_TOTAL_FRAMES || parsedFrames > MAX_TOTAL_FRAMES);
+  const plan = samplingPlan(asset?.duration ?? 0, options.frameCount);
+  const plannedFrames = plan.reduce((sum, span) => sum + span.times.length, 0);
 
   return (
     <>
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <Field label="Images envoyées à l’IA" hint="Pour l’ensemble de cet enregistrement">
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              aria-label="Mode de sélection des images"
+              value={customFrames ? 'custom' : 'auto'}
+              onChange={(event) => {
+                const frameCount = event.target.value === 'auto' ? null : normalizeFrameCount(Number(frameDraft)) ?? 120;
+                if (frameCount !== null) setFrameDraft(String(frameCount));
+                setOptions({ frameCount });
+              }}
+              className="rounded-lg border border-white/10 bg-ink-900 px-3 py-2 text-2xs text-white/80"
+            >
+              <option value="auto">Automatique — réglage actuel</option>
+              <option value="custom">Choisir le nombre total</option>
+            </select>
+            {customFrames && <Input
+              aria-label="Nombre total d’images"
+              aria-invalid={invalidFrames}
+              aria-describedby="tutorial-frame-estimate"
+              type="number"
+              min={MIN_TOTAL_FRAMES}
+              max={MAX_TOTAL_FRAMES}
+              step={1}
+              value={frameDraft}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setFrameDraft(raw);
+                const count = Number(raw);
+                if (raw.trim() && Number.isInteger(count) && count >= MIN_TOTAL_FRAMES && count <= MAX_TOTAL_FRAMES) setOptions({ frameCount: count });
+              }}
+              className="max-w-32"
+            />}
+          </div>
+          <p id="tutorial-frame-estimate" className="mt-2 text-2xs leading-relaxed text-white/55">
+            {invalidFrames
+              ? `Saisissez un nombre entier entre ${MIN_TOTAL_FRAMES} et ${MAX_TOTAL_FRAMES}.`
+              : `${plannedFrames} images prévues · ${plan.length} envoi${plan.length > 1 ? 's' : ''}${plannedFrames > 0 && asset ? ` · environ une image toutes les ${(asset.duration / plannedFrames).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : ''}.`}
+          </p>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-white/35">
+            Automatique : jusqu’à 40 images par tranche d’environ 6 minutes. En mode personnalisé,
+            les images supplémentaires sont réparties en lots de 40 maximum, avec une limite de
+            2 images par seconde sur les vidéos courtes. Plus d’images peut aider à repérer les
+            actions rapides, mais augmente le temps d’analyse et le coût IA. Cela ne garantit pas
+            une narration continue. Les images illisibles sont ignorées.
+          </p>
+        </Field>
+
         <Field label="À qui vous vous adressez" hint="Décide de la longueur du commentaire">
           <div className="grid gap-2 sm:grid-cols-3">
             {AUDIENCE_OPTIONS.map((audience) => (
@@ -541,7 +595,7 @@ function SettingsStep() {
         right={
           <Button
             variant="primary"
-            disabled={!geminiReady}
+            disabled={!geminiReady || invalidFrames}
             icon={<Settings2 size={13} strokeWidth={2.2} />}
             onClick={() => void run()}
           >

@@ -31,6 +31,8 @@ export function CropInspector({ clip, asset }: { clip: Clip; asset: MediaAsset |
   const setCropMode = useEditor((state) => state.setCropMode);
   const setClipAnchor = useEditor((state) => state.setClipAnchor);
   const retargetTo = useEditor((state) => state.retargetTo);
+  const fitClipToFrame = useEditor((state) => state.fitClipToFrame);
+  const locked = useEditor((state) => state.project?.tracks.find((track) => track.id === clip.trackId)?.locked ?? false);
 
   if (!settings) return null;
 
@@ -54,6 +56,22 @@ export function CropInspector({ clip, asset }: { clip: Clip; asset: MediaAsset |
 
   return (
     <div className="space-y-4">
+      {asset?.kind === 'video' && <button
+        type="button"
+        disabled={locked}
+        onClick={() => fitClipToFrame(clip.id)}
+        className="flex w-full items-center gap-2.5 rounded-xl border border-accent-500/25 bg-accent-500/[0.06] px-3 py-2.5 text-left transition-colors hover:bg-accent-500/[0.12] disabled:opacity-40"
+      >
+        <Frame size={13} className="shrink-0 text-accent-300" />
+        <span>
+          <span className="block text-2xs font-medium text-white/85">Afficher l’image entière</span>
+          <span className="mt-0.5 block text-[10px] leading-relaxed text-white/40">
+            Ajuste le clip sans couper les côtés. Retire ses zooms et mouvements de caméra,
+            sans changer le son ni la résolution. Annulable avec Ctrl + Z.
+          </span>
+        </span>
+      </button>}
+
       <button
         type="button"
         onClick={() => setCropMode(!cropMode)}

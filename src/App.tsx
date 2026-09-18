@@ -14,6 +14,7 @@ import { ViralWizard } from '@/components/editor/viral/ViralWizard';
 import { AmvWizard } from '@/components/editor/amv/AmvWizard';
 import { UpdateDialog } from '@/components/UpdateDialog';
 import { TutorialWizard } from '@/components/editor/tutorial/TutorialWizard';
+import { RangeNarrationDialog } from '@/components/editor/tutorial/RangeNarrationDialog';
 import { audioEngine } from '@/lib/audioEngine';
 import { useEditor } from '@/store/editorStore';
 import { useAi } from '@/store/aiStore';
@@ -136,6 +137,7 @@ export function App() {
       <BannerPicker />
       <ViralWizard />
       <TutorialWizard />
+      <RangeNarrationDialog />
       <AmvWizard />
       {/* Silent until there is genuinely a newer version — see `lib/updater`. */}
       <UpdateDialog />

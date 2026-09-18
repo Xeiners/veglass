@@ -33,6 +33,14 @@ export const FRAME_WIDTH = READABLE_WIDTH;
  * room for the audio track beside it.
  */
 export const MAX_FRAMES = 40;
+export const MIN_TOTAL_FRAMES = 10;
+export const MAX_TOTAL_FRAMES = 800;
+
+/** Invalid/absent settings keep the historical automatic mode. */
+export function normalizeFrameCount(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(MIN_TOTAL_FRAMES, Math.min(MAX_TOTAL_FRAMES, Math.round(value)));
+}
 
 /**
  * How much recording one request covers.
@@ -93,11 +101,51 @@ export function sampleTimes(window: Window, max = MAX_FRAMES): number[] {
   if (!Number.isFinite(window.duration) || window.duration <= 0) return [];
 
   const count = Math.max(1, Math.min(max, Math.round(window.duration / 2)));
+  return evenlySpacedTimes(window, count);
+}
+
+function evenlySpacedTimes(window: Window, count: number): number[] {
   const slice = window.duration / count;
 
   return Array.from({ length: count }, (_, index) => {
     const at = window.start + slice * (index + 0.5);
     return Math.round(at * 100) / 100;
+  });
+}
+
+export interface SampleWindow extends Window {
+  times: number[];
+}
+
+/** Shared by the settings estimate and the analyser: never more than 40 per call. */
+export function samplingPlan(duration: number, requested?: number | null): SampleWindow[] {
+  const spans = windows(duration);
+  const chosen = normalizeFrameCount(requested);
+  if (chosen === null) return spans.map((span) => ({ ...span, times: sampleTimes(span) }));
+  if (!spans.length) return [];
+
+  // At least one still per historical window, at most two per second. Allocate
+  // the remaining budget proportionally, so even a short tail stays covered.
+  const total = Math.max(spans.length, Math.min(chosen, Math.max(1, Math.floor(duration * 2))));
+  const extra = total - spans.length;
+  const quotas = spans.map((span) => extra * span.duration / duration);
+  const counts = quotas.map((quota) => 1 + Math.floor(quota));
+  const order = quotas.map((quota, index) => ({ index, remainder: quota - Math.floor(quota) }))
+    .sort((a, b) => b.remainder - a.remainder);
+  const left = total - counts.reduce((sum, count) => sum + count, 0);
+  for (let i = 0; i < left; i++) counts[order[i].index] += 1;
+
+  return spans.flatMap((span, index) => {
+    const count = counts[index]!;
+    const times = evenlySpacedTimes(span, count);
+    const batches: SampleWindow[] = [];
+    for (let from = 0; from < count; from += MAX_FRAMES) {
+      const to = Math.min(count, from + MAX_FRAMES);
+      const start = span.start + span.duration * from / count;
+      const end = span.start + span.duration * to / count;
+      batches.push({ start, duration: end - start, times: times.slice(from, to) });
+    }
+    return batches;
   });
 }
 

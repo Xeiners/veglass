@@ -26,8 +26,7 @@ import { TUTORIAL_SCHEMA } from './schema';
 import {
   WINDOW_SECONDS,
   grabStills,
-  sampleTimes,
-  windows,
+  samplingPlan,
   type SampleProgress,
   type Still,
 } from './frames';
@@ -318,13 +317,13 @@ export interface AnalysisProgress {
  */
 async function analyseWindow(
   asset: MediaAsset,
-  window: { start: number; duration: number },
+  window: { start: number; duration: number; times: number[] },
   settings: AiSettings,
   options: TutorialOptions,
   onProgress: (sample: SampleProgress) => void,
   signal?: AbortSignal,
 ): Promise<{ steps: TutorialStep[]; stills: number }> {
-  const stills = await grabStills(asset, sampleTimes(window), onProgress, signal);
+  const stills = await grabStills(asset, window.times, onProgress, signal);
   if (stills.length === 0 || signal?.aborted) return { steps: [], stills: 0 };
 
   let audio: { mimeType: string; data: string; from: number } | null = null;
@@ -401,14 +400,14 @@ export async function analyseTutorial(
   onProgress: (progress: AnalysisProgress) => void,
   signal?: AbortSignal,
 ): Promise<AnalysisOutcome> {
-  const spans = windows(asset.duration);
+  const spans = samplingPlan(asset.duration, options.frameCount);
   const collected: TutorialStep[] = [];
   let failed = 0;
   let stills = 0;
 
   for (let index = 0; index < spans.length; index += 1) {
     if (signal?.aborted) break;
-    const span = spans[index] as { start: number; duration: number };
+    const span = spans[index]!;
     const base = index / spans.length;
     const share = 1 / spans.length;
 

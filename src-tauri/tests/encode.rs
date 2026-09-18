@@ -302,6 +302,26 @@ fn the_generated_graph_is_one_ffmpeg_accepts() {
         );
     }
 
+    // Curves are nested `if()` expressions in ffmpeg. Keep a real encoder test
+    // at the maximum accepted density: 96 points exceeded ffmpeg's parser
+    // nesting limit and was reported only as `Invalid argument`.
+    let mut dense_scale = segment("video", 0, &video, "tr1");
+    dense_scale.animated.insert(
+        "scale".into(),
+        (0..48)
+            .map(|i| Breakpoint {
+                time: i as f64 * SECONDS / 47.0,
+                value: 1.0 + i as f64 * 0.01,
+            })
+            .collect(),
+    );
+    encode(
+        &ffmpeg,
+        &plan(vec![dense_scale], vec![bus("tr1", "video")]),
+        &streams,
+        "animated-dense-scale.mp4",
+    );
+
     // Every effect the inspector can apply, stacked in one pass.
     let mut filtered = segment("video", 0, &video, "tr1");
     filtered.effects = vec![

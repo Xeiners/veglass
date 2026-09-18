@@ -36,7 +36,6 @@ import {
   CENTRE,
   REST,
   cameraOn,
-  coverFactor,
   fittedSize,
   isRest,
   type Camera,
@@ -47,7 +46,7 @@ import type { AnimationMap, Easing, Keyframe } from '@/types/animation';
 import type { MediaAsset } from '@/types/media';
 import type { ProjectSettings } from '@/types/project';
 import type { Clip } from '@/types/timeline';
-import { ZOOM_CONFIDENCE_FLOOR, zoomable, type TutorialStep, type ZoomProfile } from '@/types/tutorial';
+import { zoomable, type TutorialStep, type ZoomProfile } from '@/types/tutorial';
 
 export { REST, cameraOn, fittedSize, type Camera, type Fit };
 
@@ -183,35 +182,16 @@ export function focusPoint(points: ScreenPoint[]): ScreenPoint {
 }
 
 /**
- * Where the camera rests, given what the recording is about.
- *
- * The Smart Pan. When the project's frame matches the source, resting means the
- * wide shot and there is nothing to decide. When it does not — a 16:9 screen
- * recording in a 9:16 project — *containing* the source would letterbox it into
- * a strip with bars above and below, which is not a tutorial anyone would
- * publish. So the resting shot covers the frame instead, and the sides that
- * have to go are chosen by where the action actually is rather than by taking
- * the middle and hoping.
+ * The resting tutorial shot always contains the full recording. A wide source
+ * fits by width, leaving bars above/below when necessary. Explicit action zooms
+ * may move closer, but must return here instead of filling the frame's height.
  */
 export function restingCamera(
-  steps: TutorialStep[],
-  asset: Pick<MediaAsset, 'width' | 'height'>,
-  settings: ProjectSettings,
+  _steps: TutorialStep[],
+  _asset: Pick<MediaAsset, 'width' | 'height'>,
+  _settings: ProjectSettings,
 ): Camera {
-  const fit = fittedSize(asset, settings);
-  if (!fit) return REST;
-
-  const cover = coverFactor(asset, settings);
-  // Within a rounding error of the same shape: contained already covers.
-  if (cover <= 1.001) return REST;
-
-  const points = steps
-    .filter(
-      (step) => step.enabled && step.point !== null && step.confidence >= ZOOM_CONFIDENCE_FLOOR,
-    )
-    .map((step) => step.point as ScreenPoint);
-
-  return cameraOn(focusPoint(points), cover, fit, settings);
+  return REST;
 }
 
 /**
@@ -352,7 +332,7 @@ export function planShots(
   settings: ProjectSettings,
   profile: ZoomProfile,
   smoothing: Smoothing = DEFAULT_SMOOTHING,
-  /** The framing to zoom *from*. See `restingCamera` for why it is not always REST. */
+  /** The framing to zoom from; normally the full, uncropped recording. */
   rest: Camera = restingCamera(steps, asset, settings),
 ): Shot[] {
   const fit = fittedSize(asset, settings);
@@ -388,10 +368,7 @@ export function planShots(
       enter,
       settle,
       leave,
-      // The profile multiplies the *resting* framing, not the contained one. In
-      // a same-shape project that is the wide shot and nothing changes; in a
-      // 9:16 project resting is already a crop, and a "140 %" zoom means 140 %
-      // of what the viewer is looking at rather than of a letterboxed strip.
+      // Zoom only by the requested factor, not by an extra cover multiplier.
       camera: cameraOn(
         step.point as ScreenPoint,
         rest.scale * profile.factor,
@@ -589,6 +566,7 @@ export function smartZoom(
   profile: ZoomProfile,
   smoothing: Smoothing = DEFAULT_SMOOTHING,
 ): AnimationMap | undefined {
+  if (profile.factor <= 1) return undefined;
   const rest = restingCamera(steps, asset, settings);
   const shots = planShots(steps, clip, asset, settings, profile, smoothing, rest);
   const stops = onFrames(

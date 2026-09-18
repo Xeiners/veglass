@@ -19,6 +19,7 @@ import { AiError, toAiError } from '@/lib/ai/client';
 import { assetFromPath, probeMedia } from '@/lib/media';
 import { discard } from '@/lib/voice/client';
 import { analyseTutorial } from '@/lib/tutorial/analyse';
+import { normalizeFrameCount } from '@/lib/tutorial/frames';
 import { placeTutorial, type TutorialBuild } from '@/lib/tutorial/build';
 import { recordScript, speakableSteps, takeKey } from '@/lib/tutorial/speech';
 import { countShots } from '@/lib/tutorial/zoom';
@@ -201,7 +202,13 @@ export const useTutorial = create<TutorialState>((set, get) => {
     },
 
     setOptions(patch) {
-      set((state) => ({ options: { ...state.options, ...patch } }));
+      set((state) => ({
+        options: {
+          ...state.options,
+          ...patch,
+          ...('frameCount' in patch ? { frameCount: normalizeFrameCount(patch.frameCount) } : {}),
+        },
+      }));
     },
 
     async run() {

@@ -417,12 +417,33 @@ pub struct Project {
     /// The hairline over the whole composition. Absent before schema 11.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<ProgressBar>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tutorial_context: Option<String>,
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
 }
 
 fn default_schema_version() -> u32 {
     1
+}
+
+#[cfg(test)]
+mod tutorial_context_tests {
+    use super::Project;
+
+    #[test]
+    fn context_round_trips_without_becoming_required_on_old_projects() {
+        let old = serde_json::json!({ "id": "test", "name": "test", "createdAt": 0,
+            "updatedAt": 0, "settings": { "width": 1920, "height": 1080, "fps": 30 } });
+        let mut project: Project = serde_json::from_value(old).unwrap();
+        assert!(project.tutorial_context.is_none());
+        assert!(serde_json::to_value(&project).unwrap().get("tutorialContext").is_none());
+        project.tutorial_context = Some("Logiciel de caisse, vouvoyer, ne pas répéter l’introduction.".into());
+        let saved = serde_json::to_value(&project).unwrap();
+        assert_eq!(saved["tutorialContext"], project.tutorial_context.clone().unwrap());
+        let loaded: Project = serde_json::from_value(saved).unwrap();
+        assert_eq!(loaded.tutorial_context, project.tutorial_context);
+    }
 }
 
 impl Project {

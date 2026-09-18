@@ -479,11 +479,11 @@ pub fn build(
                 fade_out_start,
                 fade_out,
                 volume: if clip.muted || track.muted { 0.0 } else { clip.volume },
-                opacity: clip.opacity,
-                scale: clip.scale,
-                x: clip.x,
-                y: clip.y,
-                rotation: clip.rotation,
+                opacity: if needs_bake { 1.0 } else { clip.opacity },
+                scale: if needs_bake { 1.0 } else { clip.scale },
+                x: if needs_bake { 0.0 } else { clip.x },
+                y: if needs_bake { 0.0 } else { clip.y },
+                rotation: if needs_bake { 0.0 } else { clip.rotation },
                 is_still,
                 // A baked layer already carries its transform and sits at the
                 // project's resolution, so it neither conforms nor re-transforms.
@@ -625,6 +625,29 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn baked_background_does_not_receive_a_second_transform() {
+        let project: Project = serde_json::from_value(serde_json::json!({
+            "id": "test", "name": "background", "createdAt": 0, "updatedAt": 0,
+            "settings": { "width": 320, "height": 240, "fps": 30 },
+            "tracks": [{ "id": "tr", "kind": "video", "name": "Background", "height": 68,
+                "muted": false, "locked": false, "hidden": false }],
+            "clips": [{ "id": "background", "kind": "background", "trackId": "tr",
+                "start": 2, "duration": 6, "offset": 0, "volume": 0, "muted": true,
+                "opacity": 0.5, "scale": 2, "x": 100, "y": 20, "rotation": 45 }]
+        })).unwrap();
+        let baked = HashMap::from([("background".into(), "background/%06d.png".into())]);
+        let plan = build(&project, &baked, &HashMap::new());
+        assert!(plan.warnings.is_empty());
+        assert_eq!(plan.segments.len(), 1);
+        let segment = &plan.segments[0];
+        assert!(segment.needs_bake && segment.is_sequence);
+        assert_eq!((segment.opacity, segment.scale), (1.0, 1.0));
+        assert_eq!((segment.x, segment.y, segment.rotation), (0.0, 0.0, 0.0));
+        assert_eq!(segment.timeline_in, 2.0);
+        assert_eq!(segment.render_out, 8.0);
+    }
 
     /// Mirrored by `transitionFilter` in `src/lib/renderPlan.ts`.
     #[test]

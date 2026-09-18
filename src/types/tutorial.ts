@@ -79,7 +79,7 @@ export const ZOOM_PROFILES: ZoomProfile[] = [
   {
     id: 'off',
     label: 'Fixe',
-    hint: 'Aucun mouvement de caméra',
+    hint: 'Image entière, sans zoom ni recadrage — réglage par défaut',
     factor: 1,
     lead: 0,
     release: 0,
@@ -99,7 +99,7 @@ export const ZOOM_PROFILES: ZoomProfile[] = [
   {
     id: 'balanced',
     label: 'Équilibré',
-    hint: 'Le réglage de référence — 140 %, arrivée avant le clic',
+    hint: 'Zoom à 140 %, arrivée avant le clic',
     factor: 1.4,
     lead: 0.5,
     release: 0.55,
@@ -119,11 +119,13 @@ export const ZOOM_PROFILES: ZoomProfile[] = [
 ];
 
 export const zoomProfileOf = (id: ZoomStyle): ZoomProfile =>
-  ZOOM_PROFILES.find((profile) => profile.id === id) ?? (ZOOM_PROFILES[2] as ZoomProfile);
+  ZOOM_PROFILES.find((profile) => profile.id === id) ?? (ZOOM_PROFILES[0] as ZoomProfile);
 
 export interface TutorialOptions {
   /** The screen recording being turned into a tutorial. */
   assetId: string | null;
+  /** Total stills requested for the recording. Absent/null preserves automatic sampling. */
+  frameCount?: number | null;
   /** Empty means "detect it", which the model does well. */
   language: string;
   audience: TutorialAudience;
@@ -179,11 +181,12 @@ export interface TutorialOptions {
 
 export const DEFAULT_TUTORIAL_OPTIONS: TutorialOptions = {
   assetId: null,
+  frameCount: null,
   language: '',
   audience: 'operator',
   brief: '',
   voiceover: true,
-  zoom: 'balanced',
+  zoom: 'off',
   chapters: true,
   banners: true,
   bannerPreset: 'saas',

@@ -310,13 +310,8 @@ export function placeTutorial(
   const enabled = steps.filter((step) => step.enabled);
 
   /*
-   * The resting framing, not the identity.
-   *
-   * `scale: 1` means *contained*, which is right only when the recording and
-   * the project are the same shape. Drop a 16:9 capture into a 9:16 project and
-   * containing it gives a strip of picture between two black bars — so the
-   * still framing is the Smart Pan's resting shot, anchored on where the action
-   * actually is. In a matching project this is exactly the identity again.
+   * Begin with the whole source, without a crop, even when its aspect differs
+   * from the project. Only explicit action zooms leave this resting framing.
    */
   const rest = restingCamera(enabled, asset, project.settings);
 
